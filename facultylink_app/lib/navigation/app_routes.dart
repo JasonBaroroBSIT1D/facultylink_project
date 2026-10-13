@@ -1,0 +1,19 @@
+abstract final class AppRoutes {
+  static const splash = '/';
+  static const welcome = '/welcome';
+  static const login = '/login';
+  static const signUp = '/sign-up';
+  static const forgotPassword = '/forgot-password';
+  static const main = '/main';
+  static const assessment = '/assessment';
+  static const notifications = '/notifications';
+  static const kraDetails = '/kra-details';
+  static const documentDetails = '/document-details';
+  static const uploadDocument = '/upload-document';
+  static const requirementDetails = '/requirement-details';
+  static const improvementOpportunities = '/improvement-opportunities';
+  static const editProfile = '/edit-profile';
+  static const changePassword = '/change-password';
+  static const notificationSettings = '/notification-settings';
+  static const about = '/about';
+}

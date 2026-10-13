@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+facultylink.db
+uploads/
+.env
+.pytest_cache/

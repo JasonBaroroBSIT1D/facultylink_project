@@ -1,0 +1,92 @@
+import 'package:flutter/material.dart';
+
+import '../data/app_state.dart';
+import '../screens/dashboard/dashboard_screen.dart';
+import '../screens/documents/documents_screen.dart';
+import '../screens/notifications/notifications_screen.dart';
+import '../screens/profile/profile_screen.dart';
+import '../screens/simulation/simulation_screen.dart';
+import '../theme/app_colors.dart';
+
+class MainShell extends StatelessWidget {
+  const MainShell({super.key});
+
+  static const _tabs = [
+    DashboardScreen(),
+    DocumentsScreen(),
+    SimulationScreen(),
+    NotificationsScreen(),
+    ProfileScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppState.instance;
+
+    return ListenableBuilder(
+      listenable: state,
+      builder: (context, _) {
+        final unread = state.unreadNotificationCount;
+        return Scaffold(
+          body: IndexedStack(
+            index: state.mainTabIndex,
+            children: _tabs,
+          ),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: state.mainTabIndex,
+            onDestinationSelected: state.setMainTab,
+            destinations: [
+              const NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home_outlined, color: AppColors.navy),
+                label: 'Home',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.description_outlined),
+                selectedIcon: Icon(
+                  Icons.description_outlined,
+                  color: AppColors.navy,
+                ),
+                label: 'Documents',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.track_changes_outlined),
+                selectedIcon: Icon(
+                  Icons.track_changes_outlined,
+                  color: AppColors.navy,
+                ),
+                label: 'Simulation',
+              ),
+              NavigationDestination(
+                icon: Badge(
+                  isLabelVisible: unread > 0,
+                  label: Text('$unread'),
+                  backgroundColor: AppColors.error,
+                  child: const Icon(Icons.notifications_outlined),
+                ),
+                selectedIcon: Badge(
+                  isLabelVisible: unread > 0,
+                  label: Text('$unread'),
+                  backgroundColor: AppColors.error,
+                  child: const Icon(
+                    Icons.notifications_outlined,
+                    color: AppColors.navy,
+                  ),
+                ),
+                label: 'Notifications',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.person_outline_rounded),
+                selectedIcon: Icon(
+                  Icons.person_outline_rounded,
+                  color: AppColors.navy,
+                ),
+                label: 'Profile',
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
