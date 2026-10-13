@@ -34,10 +34,16 @@ class SimulationScreen extends StatelessWidget {
                 color: AppColors.navy,
                 background: AppColors.goldSoft,
               ),
-              if (sim.kraConfigVersion > 0) ...[
+              if (sim.weightBand.isNotEmpty || sim.kraConfigVersion > 0) ...[
                 const SizedBox(height: 10),
                 Text(
-                  'Using published KRA configuration v${sim.kraConfigVersion}. ${sim.scoringFormula}',
+                  [
+                    if (sim.weightBand.isNotEmpty)
+                      'Table 2.2 weight band: ${sim.weightBand}.',
+                    if (sim.kraConfigVersion > 0)
+                      'KRA config v${sim.kraConfigVersion}.',
+                    sim.scoringFormula,
+                  ].join(' '),
                   style: const TextStyle(
                     fontSize: 12,
                     height: 1.35,

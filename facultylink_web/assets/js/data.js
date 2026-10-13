@@ -64,6 +64,7 @@ FL.store = {
       store.notifications = data.notifications || [];
       store.audit = data.audit || [];
       store.evaluationPeriods = data.evaluationPeriods || [];
+      store.kraSettings = data.kraSettings || {};
       if (FL.rules.applySettings) FL.rules.applySettings(data.kraSettings || {});
     });
   },
@@ -146,7 +147,9 @@ FL.store = {
   },
 
   saveKraSettings: function (settings) {
+    const store = this;
     return FL.api.send("PUT", "/api/kra-settings", settings).then(function (data) {
+      store.kraSettings = data.kraSettings || settings;
       FL.rules.applySettings(data.kraSettings || settings);
       return data;
     });

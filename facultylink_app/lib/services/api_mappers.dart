@@ -142,6 +142,13 @@ RankSimulation simulationFromJson(Map<String, dynamic> json) {
       }
     }
   }
+  final weights = <String, num>{};
+  final rawWeights = json['appliedWeights'];
+  if (rawWeights is Map) {
+    rawWeights.forEach((key, value) {
+      if (value is num) weights[key.toString()] = value;
+    });
+  }
   return RankSimulation(
     currentRank: json['currentRank'] as String? ?? '',
     targetRank: json['targetRank'] as String? ?? '',
@@ -151,7 +158,9 @@ RankSimulation simulationFromJson(Map<String, dynamic> json) {
     areasToImprove: areas,
     kraConfigVersion: (json['kraConfigVersion'] as num?)?.toInt() ?? 0,
     scoringFormula: json['scoringFormula'] as String? ??
-        'Final Score = Base Points × Contribution Percentage',
+        'Weighted Final Score = Σ (KRA points × Table 2.2 rank weight %)',
+    weightBand: json['weightBand'] as String? ?? '',
+    appliedWeights: weights,
   );
 }
 

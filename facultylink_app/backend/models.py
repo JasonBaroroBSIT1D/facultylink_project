@@ -174,6 +174,7 @@ class RankSimulation(db.Model):
             if self.required_points == 0
             else min(self.current_points / self.required_points, 1)
         )
+        snapshot = self.config_snapshot or {}
         return {
             "currentRank": self.current_rank,
             "targetRank": self.target_rank,
@@ -185,7 +186,11 @@ class RankSimulation(db.Model):
             "areasToImprove": self.areas_to_improve or [],
             "kraConfigVersion": self.kra_config_version or 0,
             "scoringFormula": self.scoring_formula
-            or "Final Score = Base Points × Contribution Percentage",
+            or "Weighted Final Score = Σ (KRA points × Table 2.2 rank weight %)",
+            "weightBand": snapshot.get("weightBand") or "",
+            "appliedWeights": snapshot.get("appliedWeights") or {},
+            "kraPoints": snapshot.get("kraPoints") or {},
+            "weightedScore": snapshot.get("weightedScore", self.current_points),
         }
 
 

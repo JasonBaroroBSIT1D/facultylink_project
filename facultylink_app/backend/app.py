@@ -410,6 +410,7 @@ def kra_config(user):
             "status": config["status"],
             "publishedAt": config["publishedAt"],
             "formula": config["formula"],
+            "weightedFormula": config.get("weightedFormula"),
             "targets": config["targets"],
             "requiredPoints": config["requiredPoints"],
             "criteria": config["criteria"],

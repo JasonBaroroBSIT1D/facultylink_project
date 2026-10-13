@@ -208,16 +208,46 @@ def sanitize_kra_settings(payload):
                 item[field] = number
             if item:
                 cleaned[bucket][item_id] = item
+    # Table 2.2: band → {instruction/research/extension/professionalDevelopment: percent}
+    # Also accepts web kra ids kra1–kra4.
+    kra_aliases = {
+        "kra1": "instruction",
+        "kra2": "research",
+        "kra3": "extension",
+        "kra4": "professionalDevelopment",
+        "instruction": "instruction",
+        "research": "research",
+        "extension": "extension",
+        "professionalDevelopment": "professionalDevelopment",
+    }
     weights = payload.get("rankWeights") or {}
     if not isinstance(weights, dict):
         return None
     for rank_name, value in weights.items():
         if not isinstance(rank_name, str) or not rank_name.strip() or len(rank_name) > 80:
             return None
-        number = clean_score(value)
-        if number is None or number <= 0:
+        if not isinstance(value, dict):
             return None
-        cleaned["rankWeights"][rank_name.strip()] = number
+        entry = {}
+        for kra_key, kra_value in value.items():
+            mobile = kra_aliases.get(str(kra_key))
+            if not mobile:
+                return None
+            number = clean_score(kra_value)
+            if number is None or number < 0 or number > 100:
+                return None
+            entry[mobile] = number
+        if set(entry) != {
+            "instruction",
+            "research",
+            "extension",
+            "professionalDevelopment",
+        }:
+            return None
+        total = sum(entry.values())
+        if total < 99 or total > 101:
+            return None
+        cleaned["rankWeights"][rank_name.strip()] = entry
     return cleaned
 
 
@@ -238,6 +268,40 @@ def read_kra_settings(conn):
         "indicators": {},
         "rankWeights": {},
     }
+    if not cleaned.get("rankWeights"):
+        # Table 2.2 defaults when admin has not published custom rank weights.
+        cleaned["rankWeights"] = {
+            "Instructor": {
+                "instruction": 60,
+                "research": 10,
+                "extension": 20,
+                "professionalDevelopment": 10,
+            },
+            "Asst. Professor": {
+                "instruction": 50,
+                "research": 20,
+                "extension": 20,
+                "professionalDevelopment": 10,
+            },
+            "Assoc. Professor": {
+                "instruction": 40,
+                "research": 30,
+                "extension": 20,
+                "professionalDevelopment": 10,
+            },
+            "Professor": {
+                "instruction": 30,
+                "research": 40,
+                "extension": 20,
+                "professionalDevelopment": 10,
+            },
+            "College/University Professor": {
+                "instruction": 20,
+                "research": 50,
+                "extension": 20,
+                "professionalDevelopment": 10,
+            },
+        }
     cleaned["version"] = int(row["version"] or 1)
     cleaned["status"] = row["status"] or "published"
     cleaned["publishedAt"] = row["published_at"] or row["updated_at"] or ""

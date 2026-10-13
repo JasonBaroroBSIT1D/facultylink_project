@@ -7,6 +7,7 @@ the active published row (id = 1) so Rank Simulation uses the same rules.
 from __future__ import annotations
 
 import json
+import re
 
 from sqlalchemy import inspect, text
 
@@ -18,6 +19,15 @@ WEB_TO_MOBILE_KRA = {
     "kra4": "professionalDevelopment",
 }
 
+MOBILE_TO_WEB_KRA = {v: k for k, v in WEB_TO_MOBILE_KRA.items()}
+
+KRA_KEYS = (
+    "instruction",
+    "research",
+    "extension",
+    "professionalDevelopment",
+)
+
 # Annex I defaults when published overrides are empty (matches web rules.js).
 DEFAULT_KRA_MAX = {
     "instruction": 100,
@@ -26,7 +36,44 @@ DEFAULT_KRA_MAX = {
     "professionalDevelopment": 100,
 }
 
+# DBM–CHED Joint Circular Table 2.2 — KRA weights (%) by faculty rank band.
+DEFAULT_RANK_WEIGHTS = {
+    "Instructor": {
+        "instruction": 60,
+        "research": 10,
+        "extension": 20,
+        "professionalDevelopment": 10,
+    },
+    "Asst. Professor": {
+        "instruction": 50,
+        "research": 20,
+        "extension": 20,
+        "professionalDevelopment": 10,
+    },
+    "Assoc. Professor": {
+        "instruction": 40,
+        "research": 30,
+        "extension": 20,
+        "professionalDevelopment": 10,
+    },
+    "Professor": {
+        "instruction": 30,
+        "research": 40,
+        "extension": 20,
+        "professionalDevelopment": 10,
+    },
+    "College/University Professor": {
+        "instruction": 20,
+        "research": 50,
+        "extension": 20,
+        "professionalDevelopment": 10,
+    },
+}
+
 SCORING_FORMULA = "Final Score = Base Points × Contribution Percentage"
+WEIGHTED_FORMULA = (
+    "Weighted Final Score = Σ (KRA points × Table 2.2 rank weight %)"
+)
 
 
 def _parse_payload(raw) -> dict:
@@ -41,18 +88,95 @@ def _parse_payload(raw) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def normalize_rank_weights(raw) -> dict:
+    """Return Table 2.2-style band → {mobile kra: percent} map."""
+    if not isinstance(raw, dict) or not raw:
+        return {band: dict(weights) for band, weights in DEFAULT_RANK_WEIGHTS.items()}
+
+    normalized = {}
+    for band, values in raw.items():
+        if not isinstance(band, str) or not band.strip():
+            continue
+        if not isinstance(values, dict):
+            continue
+        entry = {}
+        for key, value in values.items():
+            mobile = WEB_TO_MOBILE_KRA.get(str(key), str(key))
+            if mobile not in KRA_KEYS:
+                continue
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            if number < 0 or number > 100:
+                continue
+            entry[mobile] = number
+        if len(entry) == len(KRA_KEYS):
+            # Accept percent totals near 100 (floating point / rounding).
+            total = sum(entry.values())
+            if 99.0 <= total <= 101.0:
+                normalized[band.strip()] = entry
+    return normalized or {
+        band: dict(weights) for band, weights in DEFAULT_RANK_WEIGHTS.items()
+    }
+
+
+def resolve_rank_band(current_rank: str | None) -> str:
+    """Map a faculty rank label to a Table 2.2 band name."""
+    text_value = (current_rank or "").strip().lower()
+    if not text_value:
+        return "Instructor"
+    compact = re.sub(r"[^a-z0-9]+", " ", text_value)
+    if "college" in compact or "university professor" in compact or "col univ" in compact:
+        return "College/University Professor"
+    if "assoc" in compact:
+        return "Assoc. Professor"
+    if "asst" in compact or "assistant" in compact:
+        return "Asst. Professor"
+    if "professor" in compact:
+        return "Professor"
+    return "Instructor"
+
+
+def weights_for_rank(config: dict, current_rank: str | None) -> tuple[str, dict]:
+    """Return (band name, per-KRA weight percents) for the faculty rank."""
+    weights = normalize_rank_weights(config.get("rankWeights"))
+    band = resolve_rank_band(current_rank)
+    if band in weights:
+        return band, dict(weights[band])
+    # Fuzzy match published keys.
+    band_l = band.lower()
+    for key, value in weights.items():
+        if key.lower() == band_l or band_l in key.lower() or key.lower() in band_l:
+            return key, dict(value)
+    return band, dict(DEFAULT_RANK_WEIGHTS[band])
+
+
+def weighted_final_score(kra_points: dict, weights_percent: dict) -> float:
+    """Table 2.2: Σ (KRA points × weight%). KRA points are 0–100 scale."""
+    total = 0.0
+    for kra in KRA_KEYS:
+        points = float(kra_points.get(kra, 0) or 0)
+        weight = float(weights_percent.get(kra, 0) or 0) / 100.0
+        total += points * weight
+    return round(total, 2)
+
+
 def _empty_config() -> dict:
     return {
         "version": 0,
         "status": "default",
         "publishedAt": "",
         "formula": SCORING_FORMULA,
+        "weightedFormula": WEIGHTED_FORMULA,
         "targets": dict(DEFAULT_KRA_MAX),
-        "requiredPoints": sum(DEFAULT_KRA_MAX.values()),
+        "requiredPoints": 100,
         "kras": {},
         "criteria": {},
         "indicators": {},
-        "rankWeights": {},
+        "rankWeights": {
+            band: dict(weights) for band, weights in DEFAULT_RANK_WEIGHTS.items()
+        },
     }
 
 
@@ -94,14 +218,15 @@ def load_active_kra_config(db) -> dict:
 
     indicators = payload.get("indicators") if isinstance(payload.get("indicators"), dict) else {}
     criteria = payload.get("criteria") if isinstance(payload.get("criteria"), dict) else {}
-    rank_weights = payload.get("rankWeights") if isinstance(payload.get("rankWeights"), dict) else {}
+    rank_weights = normalize_rank_weights(payload.get("rankWeights"))
     return {
         "version": version,
         "status": row.get("status") or "published",
         "publishedAt": row.get("published_at") or row.get("updated_at") or "",
         "formula": formula,
+        "weightedFormula": WEIGHTED_FORMULA,
         "targets": targets,
-        "requiredPoints": sum(targets.values()),
+        "requiredPoints": 100,
         "kras": payload.get("kras") or {},
         "criteria": criteria,
         "indicators": indicators,
@@ -137,17 +262,6 @@ def indicator_cap(config: dict, indicator_id: str | None) -> float | None:
     if isinstance(entry.get("maxPoints"), (int, float)):
         return float(entry["maxPoints"])
     return None
-
-
-def rank_weight_factor(config: dict, current_rank: str | None) -> float:
-    """Optional faculty-rank weight from published config; default 1.0."""
-    weights = config.get("rankWeights") or {}
-    if not weights or not current_rank:
-        return 1.0
-    value = weights.get(current_rank) or weights.get(current_rank.lower())
-    if isinstance(value, (int, float)) and value > 0:
-        return float(value)
-    return 1.0
 
 
 def final_score(base_points: float, contribution_percent: float) -> float:

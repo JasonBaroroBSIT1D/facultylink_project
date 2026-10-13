@@ -197,7 +197,9 @@ class RankSimulation {
     required this.areasToImprove,
     this.kraConfigVersion = 0,
     this.scoringFormula =
-        'Final Score = Base Points × Contribution Percentage',
+        'Weighted Final Score = Σ (KRA points × Table 2.2 rank weight %)',
+    this.weightBand = '',
+    this.appliedWeights = const {},
   });
 
   final String currentRank;
@@ -208,6 +210,8 @@ class RankSimulation {
   final List<ImprovementArea> areasToImprove;
   final int kraConfigVersion;
   final String scoringFormula;
+  final String weightBand;
+  final Map<String, num> appliedWeights;
 
   double get progress =>
       requiredPoints == 0 ? 0 : (currentPoints / requiredPoints).clamp(0, 1);

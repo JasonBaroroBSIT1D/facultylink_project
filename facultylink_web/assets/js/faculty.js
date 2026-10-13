@@ -289,7 +289,8 @@ FL.faculty = {
           <dl class="facts compact">
             <div><dt>Cycle</dt><dd>NBC 461, 9th Cycle</dd></div>
             <div><dt>Current rank</dt><dd>${FL.esc(person.rank)}</dd></div>
-            <div><dt>Estimated KRA total</dt><dd>${sim.aggregate.total}</dd></div>
+            <div><dt>Estimated weighted score</dt><dd>${sim.aggregate.weightedScore != null ? sim.aggregate.weightedScore : sim.aggregate.total} / 100</dd></div>
+            <div><dt>Table 2.2 band</dt><dd>${FL.esc(sim.aggregate.weightBand || "—")}</dd></div>
             <div><dt>Reviewer</dt><dd>${FL.esc(reviewer ? reviewer.name : "Unassigned")}</dd></div>
             <div><dt>Compliance</dt><dd>${FL.esc(compliance.status)}</dd></div>
           </dl>
@@ -317,9 +318,11 @@ FL.faculty = {
       </div>
       <div class="stat-grid">
         <article class="stat"><span>Current rank</span><strong>${FL.esc(sim.faculty.rank)}</strong></article>
-        <article class="stat"><span>Computed score</span><strong>${sim.aggregate.total}</strong><small>Sum of approved KRA points, including stated bonus points</small></article>
+        <article class="stat"><span>Weighted score</span><strong>${sim.aggregate.weightedScore != null ? sim.aggregate.weightedScore : sim.aggregate.total}</strong><small>Table 2.2 (${FL.esc(sim.aggregate.weightBand || "rank band")}) out of 100</small></article>
+        <article class="stat"><span>Raw KRA points</span><strong>${sim.aggregate.rawTotal != null ? sim.aggregate.rawTotal : "—"}</strong><small>Sum before rank weights</small></article>
         ${sim.aggregate.kras.map(function (kra) {
-          return `<article class="stat"><span>${FL.esc(kra.code)}</span><strong>${kra.earned}${kra.bonus ? " + " + kra.bonus : ""}</strong><small>Maximum ${kra.maxPoints}${kra.bonusMax ? " + " + kra.bonusMax + " bonus" : ""}</small></article>`;
+          const weight = sim.aggregate.appliedWeights ? sim.aggregate.appliedWeights[kra.id] : null;
+          return `<article class="stat"><span>${FL.esc(kra.code)}</span><strong>${kra.earned}${kra.bonus ? " + " + kra.bonus : ""}</strong><small>Maximum ${kra.maxPoints}${kra.bonusMax ? " + " + kra.bonusMax + " bonus" : ""}${weight != null ? " · Weight " + weight + "%" : ""}</small></article>`;
         }).join("")}
       </div>
       <article class="card">

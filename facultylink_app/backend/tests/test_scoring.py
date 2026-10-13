@@ -4,7 +4,12 @@ import pytest
 from PIL import Image, ImageDraw, ImageFont
 
 from ocr import configure_tesseract, extract_text
-from kra_config import final_score
+from kra_config import (
+    final_score,
+    resolve_rank_band,
+    weighted_final_score,
+    weights_for_rank,
+)
 from scoring import classify_kra, contribution_score, file_hash, process_upload
 
 
@@ -30,6 +35,37 @@ def test_final_score_matches_web_formula():
     assert final_score(10, 60) == 6
     assert final_score(80, 70) == 56
     assert final_score(10, 50) == 5
+
+
+def test_table_22_assoc_professor_weights():
+    assert resolve_rank_band("Associate Professor III") == "Assoc. Professor"
+    band, weights = weights_for_rank({}, "Associate Professor III")
+    assert band == "Assoc. Professor"
+    assert weights == {
+        "instruction": 40,
+        "research": 30,
+        "extension": 20,
+        "professionalDevelopment": 10,
+    }
+    # Example: 85, 70, 60, 50 → 34 + 21 + 12 + 5 = 72
+    score = weighted_final_score(
+        {
+            "instruction": 85,
+            "research": 70,
+            "extension": 60,
+            "professionalDevelopment": 50,
+        },
+        weights,
+    )
+    assert score == 72.0
+
+
+def test_table_22_instructor_weights():
+    band, weights = weights_for_rank({}, "Instructor I")
+    assert band == "Instructor"
+    assert weights["instruction"] == 60
+    assert weights["research"] == 10
+
 
 
 def test_duplicate_file_hash_matches_same_bytes(tmp_path: Path):

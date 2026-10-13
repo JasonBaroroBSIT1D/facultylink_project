@@ -5,10 +5,12 @@ from pathlib import Path
 from kra_config import (
     DEFAULT_KRA_MAX,
     SCORING_FORMULA,
+    WEIGHTED_FORMULA,
     document_earned_points,
     final_score,
     load_active_kra_config,
-    rank_weight_factor,
+    weighted_final_score,
+    weights_for_rank,
 )
 from ocr import extract_text
 
@@ -136,11 +138,8 @@ def _archive_simulation_if_version_changed(sim, previous_version: int, config_ve
 def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
     config = load_active_kra_config(db)
     targets = config.get("targets") or dict(KRA_TARGETS)
-    required = int(config.get("requiredPoints") or sum(targets.values()))
-    weight = rank_weight_factor(
-        config,
-        user.profile.current_rank if user.profile else None,
-    )
+    current_rank = user.profile.current_rank if user.profile else "Instructor I"
+    weight_band, applied_weights = weights_for_rank(config, current_rank)
 
     docs = [doc for doc in user.documents if doc.status == "validated"]
     totals = {kra: 0.0 for kra in targets}
@@ -154,8 +153,7 @@ def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
         counts[kra] = counts.get(kra, 0) + 1
 
     for kra, target in targets.items():
-        raw = totals.get(kra, 0.0) * weight
-        current = min(raw, float(target))
+        current = min(totals.get(kra, 0.0), float(target))
         totals[kra] = current
         row = next((item for item in user.kra_scores if item.kra == kra), None)
         if row is None:
@@ -172,12 +170,14 @@ def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
         else:
             row.status_label = "In progress"
 
-    total = int(round(sum(totals.values())))
+    # Table 2.2 weighted final score (0–100), using the faculty member's rank band.
+    weighted = weighted_final_score(totals, applied_weights)
+    required = 100
     sim = user.simulation
     if sim is None:
         sim = RankSimulation(
             user_id=user.id,
-            current_rank=user.profile.current_rank if user.profile else "Instructor I",
+            current_rank=current_rank,
             target_rank="Instructor II",
             required_points=required,
         )
@@ -189,27 +189,34 @@ def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
             int(config.get("version") or 0),
         )
 
-    sim.current_points = total
+    sim.current_points = int(round(weighted))
     sim.required_points = required
     sim.kra_config_version = int(config.get("version") or 0)
-    sim.scoring_formula = config.get("formula") or SCORING_FORMULA
+    sim.scoring_formula = WEIGHTED_FORMULA
     sim.config_snapshot = {
         "targets": targets,
         "criteria": config.get("criteria") or {},
         "indicators": config.get("indicators") or {},
         "rankWeights": config.get("rankWeights") or {},
+        "weightBand": weight_band,
+        "appliedWeights": applied_weights,
+        "kraPoints": {kra: round(totals.get(kra, 0.0), 2) for kra in targets},
+        "weightedScore": weighted,
         "publishedAt": config.get("publishedAt") or "",
         "status": config.get("status") or "published",
     }
     if user.profile:
         sim.current_rank = user.profile.current_rank
-    threshold = max(int(round(required * 0.6)), 1) if required else 0
-    sim.eligibility_label = "Potentially Eligible" if total >= threshold else "Pending"
+    # Table 3.1 starts awarding sub-ranks at 41; use that as a preview threshold only.
+    sim.eligibility_label = "Potentially Eligible" if weighted >= 41 else "Pending"
     sim.areas_to_improve = [
         {
             "kra": kra,
             "recommendedPoints": int(round(max(targets[kra] - totals.get(kra, 0), 0))),
-            "guidance": f"Add documentary evidence for {kra} to close the remaining gap.",
+            "guidance": (
+                f"Add documentary evidence for {kra}. "
+                f"Table 2.2 weight for {weight_band}: {int(applied_weights.get(kra, 0))}%."
+            ),
         }
         for kra in targets
         if totals.get(kra, 0) < targets[kra]

@@ -7,9 +7,59 @@ window.FL = window.FL || {};
 
 FL.scoring = {
   formula: "Final Score = Base Points × Contribution Percentage",
+  weightedFormula: "Weighted Final Score = Σ (KRA points × Table 2.2 rank weight %)",
+
+  // DBM–CHED Joint Circular Table 2.2 — percentages by faculty rank band.
+  table22Defaults: {
+    "Instructor": { kra1: 60, kra2: 10, kra3: 20, kra4: 10 },
+    "Asst. Professor": { kra1: 50, kra2: 20, kra3: 20, kra4: 10 },
+    "Assoc. Professor": { kra1: 40, kra2: 30, kra3: 20, kra4: 10 },
+    "Professor": { kra1: 30, kra2: 40, kra3: 20, kra4: 10 },
+    "College/University Professor": { kra1: 20, kra2: 50, kra3: 20, kra4: 10 }
+  },
 
   round(value) {
     return Math.round((value + Number.EPSILON) * 100) / 100;
+  },
+
+  resolveRankBand(rank) {
+    const text = String(rank || "").toLowerCase();
+    if (!text) return "Instructor";
+    if (text.indexOf("college") >= 0 || text.indexOf("university professor") >= 0 || text.indexOf("col./univ") >= 0) {
+      return "College/University Professor";
+    }
+    if (text.indexOf("assoc") >= 0) return "Assoc. Professor";
+    if (text.indexOf("asst") >= 0 || text.indexOf("assistant") >= 0) return "Asst. Professor";
+    if (text.indexOf("professor") >= 0) return "Professor";
+    return "Instructor";
+  },
+
+  weightsForRank(rank) {
+    const band = this.resolveRankBand(rank);
+    const published = (FL.store && FL.store.kraSettings && FL.store.kraSettings.rankWeights) || {};
+    const source = published[band] || this.table22Defaults[band] || this.table22Defaults.Instructor;
+    const map = {};
+    ["kra1", "kra2", "kra3", "kra4"].forEach(function (kraId) {
+      const mobile = { kra1: "instruction", kra2: "research", kra3: "extension", kra4: "professionalDevelopment" }[kraId];
+      const value = source[kraId] != null ? source[kraId] : source[mobile];
+      map[kraId] = Number(value) || 0;
+    });
+    return { band: band, weights: map };
+  },
+
+  weightedScore(kras, rank) {
+    const resolved = this.weightsForRank(rank);
+    let total = 0;
+    kras.forEach(function (kra) {
+      const percent = resolved.weights[kra.id] || 0;
+      const earned = (Number(kra.earned) || 0) + (Number(kra.bonus) || 0);
+      total += earned * (percent / 100);
+    });
+    return {
+      band: resolved.band,
+      weights: resolved.weights,
+      score: this.round(total)
+    };
   },
 
   basePoints(indicator, document) {
@@ -194,13 +244,18 @@ FL.scoring = {
       kra.bonus = FL.scoring.round(lockedBonus + Math.min(Math.max(0, kra.bonusMax - lockedBonus), openBonus));
     });
 
-    const total = this.round(kras.reduce(function (sum, kra) { return sum + kra.earned + kra.bonus; }, 0));
-    return { kras: kras, total: total, documents: documents };
+    const rawTotal = this.round(kras.reduce(function (sum, kra) { return sum + kra.earned + kra.bonus; }, 0));
+    return { kras: kras, rawTotal: rawTotal, total: rawTotal, documents: documents };
   },
 
   simulation(facultyId) {
     const faculty = FL.store.facultyById(facultyId);
     const aggregate = this.aggregateFaculty(facultyId);
+    const weighted = this.weightedScore(aggregate.kras, faculty ? faculty.rank : "");
+    aggregate.weightBand = weighted.band;
+    aggregate.appliedWeights = weighted.weights;
+    aggregate.weightedScore = weighted.score;
+    aggregate.total = weighted.score;
     const gaps = [];
     aggregate.documents.forEach(function (doc) {
       const scored = FL.scoring.scoreDocument(doc);
@@ -229,7 +284,15 @@ FL.scoring = {
         gaps.push({ tone: "warning", text: kra.code + " — " + kra.name + " has no approved points in this estimate." });
       }
     });
-    if (!gaps.length) {
+    gaps.push({
+      tone: "info",
+      text: "Table 2.2 weight band: " + weighted.band +
+        " (Instruction " + weighted.weights.kra1 +
+        "%, Research " + weighted.weights.kra2 +
+        "%, Extension " + weighted.weights.kra3 +
+        "%, Professional Development " + weighted.weights.kra4 + "%)."
+    });
+    if (gaps.filter(function (gap) { return gap.tone !== "info" && gap.tone !== "ok"; }).length === 0) {
       gaps.push({ tone: "ok", text: "No missing-field, classification, or duplicate gaps were found in the approved documents. Official sub-rank determination remains with the evaluation committees and the governing board." });
     }
     return { faculty: faculty, aggregate: aggregate, gaps: gaps };
