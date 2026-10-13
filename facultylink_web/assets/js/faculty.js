@@ -22,28 +22,37 @@ FL.faculty = {
     return Object.keys(set).sort();
   },
 
-  listHtml: function (people, action) {
-    if (!people.length) return FL.ui.empty("No faculty records", "No faculty record matches this search or filter.");
+  listHtml: function (people, action, manage) {
+    if (!people.length) return FL.ui.empty("No faculty records", "Add a faculty member to begin assignments.");
     return `
       <table class="data">
         <thead>
           <tr>
-            <th>Faculty</th><th>Current rank</th><th>Department</th><th>Reviewer</th><th>KRA estimate</th><th>Compliance</th><th></th>
+            <th>Faculty</th>
+            <th>Current rank</th>
+            <th>Department</th>
+            <th>Reviewer</th>
+            <th>Status</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           ${people.map(function (person) {
-            const sim = FL.scoring.simulation(person.id);
             const compliance = FL.compliance(person.id);
             const reviewer = FL.store.userById(person.reviewerId);
             return `<tr>
-              <td><strong>${FL.esc(person.name)}</strong><div class="sub">${FL.esc(person.employeeNo)}</div></td>
+              <td><strong>${FL.esc(person.name)}</strong><div class="sub">${FL.esc(person.email || person.college || "")}</div></td>
               <td>${FL.esc(person.rank)}</td>
               <td>${FL.esc(person.department)}</td>
               <td>${FL.esc(reviewer ? reviewer.name : "Unassigned")}</td>
-              <td>${FL.esc(String(sim.aggregate.total))}</td>
               <td>${FL.ui.statusBadge(compliance.status)}</td>
-              <td><a class="btn btn-small btn-primary" href="${FL.faculty.detailHref(person.id)}">${FL.esc(action || "View faculty")}</a></td>
+              <td class="action-cell">
+                <a class="btn btn-small btn-ghost" href="${FL.faculty.detailHref(person.id)}">${FL.esc(action || "View faculty")}</a>
+                ${manage ? `
+                  <button class="btn btn-small btn-primary" type="button" data-change-reviewer="${FL.esc(person.id)}">Change reviewer</button>
+                  <button class="btn btn-small btn-ghost" type="button" data-remove-faculty="${FL.esc(person.id)}">Remove</button>
+                ` : ""}
+              </td>
             </tr>`;
           }).join("")}
         </tbody>
@@ -51,8 +60,8 @@ FL.faculty = {
   },
 
   renderList: function (options) {
-    const colleges = FL.faculty.colleges();
     const page = document.getElementById("page");
+    const manage = !!options.manage;
     page.innerHTML = `
       <div class="page-head">
         <div>
@@ -60,42 +69,112 @@ FL.faculty = {
           <h1>${FL.esc(options.title)}</h1>
           <p class="lede">${FL.esc(options.lede)}</p>
         </div>
+        ${manage ? `<button class="btn btn-primary" type="button" id="faculty-add">Add faculty</button>` : ""}
       </div>
       <div class="toolbar">
         <label class="search"><span class="sr-only">Search faculty</span>
-          <input id="faculty-search" type="search" placeholder="Search name, department, rank, or employee number">
-        </label>
-        <label class="filter"><span>College</span>
-          <select id="faculty-college"><option value="">All colleges</option>${colleges.map(function (college) {
-            return `<option>${FL.esc(college)}</option>`;
-          }).join("")}</select>
-        </label>
-        <label class="filter"><span>Compliance</span>
-          <select id="faculty-compliance">
-            <option value="">All statuses</option>
-            <option>On track</option>
-            <option>Needs attention</option>
-            <option>Incomplete</option>
-          </select>
+          <input id="faculty-search" type="search" placeholder="Search faculty, department, rank, or reviewer">
         </label>
       </div>
       <div class="card"><div class="table-wrap" id="faculty-table"></div></div>`;
     const draw = function () {
       const query = document.getElementById("faculty-search").value.trim().toLowerCase();
-      const college = document.getElementById("faculty-college").value;
-      const compliance = document.getElementById("faculty-compliance").value;
-      const people = options.people.filter(function (person) {
-        if (college && person.college !== college) return false;
-        if (compliance && FL.compliance(person.id).status !== compliance) return false;
+      const people = (manage ? FL.store.faculty : options.people).filter(function (person) {
         if (!query) return true;
-        return [person.name, person.department, person.college, person.rank, person.employeeNo, person.specialization].join(" ").toLowerCase().indexOf(query) !== -1;
+        const reviewer = FL.store.userById(person.reviewerId);
+        return [person.name, person.email, person.department, person.college, person.rank, reviewer ? reviewer.name : ""]
+          .join(" ")
+          .toLowerCase()
+          .indexOf(query) !== -1;
       });
-      document.getElementById("faculty-table").innerHTML = FL.faculty.listHtml(people, options.action);
+      const host = document.getElementById("faculty-table");
+      host.innerHTML = FL.faculty.listHtml(people, options.action, manage);
+      if (!manage) return;
+      host.querySelectorAll("[data-change-reviewer]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          FL.admin.changeFacultyReviewer(options.session, button.getAttribute("data-change-reviewer"), draw);
+        });
+      });
+      host.querySelectorAll("[data-remove-faculty]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          FL.faculty.removeFaculty(button.getAttribute("data-remove-faculty"), draw);
+        });
+      });
     };
     document.getElementById("faculty-search").addEventListener("input", draw);
-    document.getElementById("faculty-college").addEventListener("change", draw);
-    document.getElementById("faculty-compliance").addEventListener("change", draw);
+    if (manage) {
+      document.getElementById("faculty-add").addEventListener("click", function () {
+        FL.faculty.addFaculty(options.session, draw);
+      });
+    }
     draw();
+  },
+
+  addFaculty: function (session, redraw) {
+    const reviewers = FL.store.users.filter(function (user) { return user.role === "reviewer"; });
+    const reviewerOptions = [`<option value="">Unassigned</option>`].concat(reviewers.map(function (reviewer) {
+      return `<option value="${FL.esc(reviewer.id)}">${FL.esc(reviewer.name)}</option>`;
+    })).join("");
+    FL.ui.modal({
+      title: "Add faculty",
+      confirmLabel: "Create faculty",
+      body: `
+        <div class="form-grid">
+          <label class="field"><span>Full name</span><input id="faculty-full-name" type="text" required></label>
+          <label class="field"><span>Email</span><input id="faculty-email" type="email" required></label>
+          <label class="field"><span>Department</span><input id="faculty-department" type="text" required></label>
+          <label class="field"><span>Current rank</span><input id="faculty-rank" type="text" value="Instructor I"></label>
+          <label class="field"><span>Highest academic degree (optional)</span><input id="faculty-education" type="text" placeholder="e.g. Master of Arts in Education"></label>
+          <label class="field"><span>Temporary password (optional)</span><input id="faculty-password" type="text" placeholder="Auto-generated if blank"></label>
+          <label class="field"><span>Assign reviewer</span><select id="faculty-reviewer">${reviewerOptions}</select></label>
+        </div>
+        <p class="note">Highest degree is the faculty member’s top finished degree (Bachelor’s / Master’s / Doctorate). The account can sign in to the mobile app with this email and password.</p>`,
+      onConfirm: function () {
+        const payload = {
+          fullName: document.getElementById("faculty-full-name").value.trim(),
+          email: document.getElementById("faculty-email").value.trim(),
+          department: document.getElementById("faculty-department").value.trim(),
+          rank: document.getElementById("faculty-rank").value.trim() || "Instructor I",
+          education: document.getElementById("faculty-education").value.trim(),
+          password: document.getElementById("faculty-password").value.trim(),
+          reviewerId: document.getElementById("faculty-reviewer").value
+        };
+        if (!payload.fullName || !payload.email || !payload.department) {
+          FL.ui.toast("Fill in name, email, and department.", "danger");
+          return false;
+        }
+        FL.store.createFaculty(payload).then(function (data) {
+          const admin = FL.store.userById(session.userId);
+          return FL.audit.record(admin, "Added faculty", data.faculty && data.faculty.id, "Created " + payload.fullName + ".").then(function () {
+            return data;
+          });
+        }).then(function (data) {
+          FL.ui.toast("Faculty added. Temporary password: " + (data.temporaryPassword || "(set)"), "ok");
+          redraw();
+        }).catch(function (error) {
+          FL.ui.toast(error.message || "Faculty was not added.", "danger");
+        });
+      }
+    });
+  },
+
+  removeFaculty: function (facultyId, redraw) {
+    const person = FL.store.facultyById(facultyId);
+    if (!person) return;
+    FL.ui.modal({
+      title: "Remove faculty",
+      danger: true,
+      confirmLabel: "Remove faculty",
+      body: `<p>Remove <strong>${FL.esc(person.name)}</strong>? Their documents, scores, and login will also be removed.</p>`,
+      onConfirm: function () {
+        FL.store.removeFaculty(facultyId).then(function () {
+          FL.ui.toast(person.name + " was removed.", "ok");
+          redraw();
+        }).catch(function (error) {
+          FL.ui.toast(error.message || "Faculty was not removed.", "danger");
+        });
+      }
+    });
   },
 
   renderDetail: function (session) {
@@ -135,16 +214,13 @@ FL.faculty = {
           <article class="card">
             <div class="card-head"><h2>Faculty profile</h2></div>
             <dl class="facts">
-              <div><dt>Employee number</dt><dd>${FL.esc(person.employeeNo)}</dd></div>
               <div><dt>Email</dt><dd>${FL.esc(person.email)}</dd></div>
               <div><dt>Contact</dt><dd>${FL.esc(person.contact)}</dd></div>
-              <div><dt>College</dt><dd>${FL.esc(person.college)}</dd></div>
               <div><dt>Department</dt><dd>${FL.esc(person.department)}</dd></div>
               <div><dt>Current rank</dt><dd>${FL.esc(person.rank)}</dd></div>
               <div><dt>Designation</dt><dd>${FL.esc(person.designation)}</dd></div>
               <div><dt>Employment</dt><dd>${FL.esc(person.employment)}</dd></div>
               <div><dt>Date hired</dt><dd>${FL.esc(FL.formatWhen(person.dateHired))}</dd></div>
-              <div><dt>Specialization</dt><dd>${FL.esc(person.specialization)}</dd></div>
               <div><dt>Education</dt><dd>${FL.esc(person.education)}</dd></div>
               <div><dt>Assigned reviewer</dt><dd>${FL.esc(reviewer ? reviewer.name : "Unassigned")}</dd></div>
             </dl>
@@ -255,12 +331,14 @@ FL.faculty = {
   }
 };
 
-FL.pages["admin-faculty"] = function () {
+FL.pages["admin-faculty"] = function (session) {
   FL.faculty.renderList({
     eyebrow: "Faculty records",
     title: "Faculty",
-    lede: "Faculty information, current rank, documents, KRA scores, and readiness for DBM–CHED evaluation support.",
-    people: FL.store.faculty
+    lede: "Add or remove faculty accounts, then assign or change their reviewer. Faculty readiness stays available for DBM–CHED evaluation support.",
+    people: FL.store.faculty,
+    manage: true,
+    session: session
   });
 };
 
@@ -268,7 +346,7 @@ FL.pages["reviewer-faculty"] = function (session) {
   FL.faculty.renderList({
     eyebrow: "Assignments",
     title: "Assigned Faculty",
-    lede: "Faculty assigned to you, with rank, KRA estimates, documents, and validation status.",
+    lede: "Faculty assigned to you, with rank, documents, and validation status.",
     action: "Open Faculty",
     people: FL.store.faculty.filter(function (person) { return person.reviewerId === session.userId; })
   });

@@ -1,6 +1,6 @@
 # FacultyLink backend
 
-Flask + SQLAlchemy API for the FacultyLink faculty mobile app. PostgreSQL is the thesis database; SQLite is the default so a Windows demo can start without extra installs.
+Flask + SQLAlchemy API for the FacultyLink faculty mobile app. PostgreSQL is required (SQLite is disabled).
 
 FacultyLink is **preparatory**. Reviewers confirm documents. The system does not certify authenticity or replace official DBM–CHED evaluation.
 
@@ -25,9 +25,9 @@ python app.py
 
 The API listens on `http://127.0.0.1:5000`. Android emulators should use `http://10.0.2.2:5000`.
 
-If `pip` cannot build Pillow or `psycopg2-binary` on a newer Python, install the core packages first (`flask`, `flask-sqlalchemy`, `flask-jwt-extended`, `flask-cors`, `python-dotenv`, `pytest`). SQLite and keyword scoring still work. Install `Pillow`/`pytesseract` when you want image OCR, and `psycopg2-binary` when you use PostgreSQL.
+If `pip` cannot build Pillow on a newer Python, install the core packages first (`flask`, `flask-sqlalchemy`, `flask-jwt-extended`, `flask-cors`, `python-dotenv`, `psycopg[binary]`, `pytest`). Install `Pillow`/`pytesseract` when you want image OCR.
 
-### PostgreSQL (this machine already has PostgreSQL 18)
+### PostgreSQL (required)
 
 The Flutter app never talks to Postgres. It calls Flask at `http://127.0.0.1:5000`. Flask reads `DATABASE_URL` from `backend/.env` and creates the tables on first boot.
 
@@ -44,7 +44,7 @@ CREATE DATABASE facultylink;
 DATABASE_URL=postgresql+psycopg://postgres:YOUR_PASSWORD@127.0.0.1:5432/facultylink
 ```
 
-3. Restart Flask (`python app.py`). It creates the ERD tables and seeds Maria Santos if that account is missing.
+3. Restart Flask (`python app.py`). It creates the ERD tables. Demo users/documents are loaded only when `SEED_DEMO_DATA=1` is set in `.env`.
 
 ### Tesseract OCR
 

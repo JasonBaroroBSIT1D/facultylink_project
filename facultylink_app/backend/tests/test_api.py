@@ -1,27 +1,7 @@
 import io
 
-import pytest
-
-from app import app, db
+from app import app
 from models import User
-from seed import seed_if_empty
-
-
-@pytest.fixture()
-def client(tmp_path):
-    app.config["TESTING"] = True
-    app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{tmp_path / 'test.db'}"
-    with app.app_context():
-        db.session.remove()
-        db.engine.dispose()
-        db.create_all()
-        seed_if_empty()
-    with app.test_client() as test_client:
-        yield test_client
-    with app.app_context():
-        db.session.remove()
-        db.drop_all()
-        db.engine.dispose()
 
 
 def faculty_headers(client):
@@ -76,7 +56,10 @@ def test_faculty_read_apis(client):
     assert simulation.get_json()["currentRank"] == "Instructor I"
     assert notifications.status_code == 200
     assert period.status_code == 200
-    assert "AY 2025" in period.get_json()["cycleName"]
+    cycle_name = period.get_json()["cycleName"]
+    assert "AY 2025" in cycle_name or cycle_name == "Rank Upgrade and Reclassification"
+    assert period.get_json()["startDate"]
+    assert period.get_json()["endDate"]
 
 
 def test_register_request(client):

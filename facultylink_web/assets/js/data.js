@@ -33,7 +33,11 @@ FL.api = {
     }).then(function (response) {
       return response.json().catch(function () { return {}; }).then(function (data) {
         if (!response.ok) {
-          const error = new Error(data.error || "The server did not save that change.");
+          const fallback =
+            response.status === 405
+              ? "The web server needs a restart to load the latest admin save routes."
+              : "The server did not save that change.";
+          const error = new Error(data.error || fallback);
           error.status = response.status;
           throw error;
         }
@@ -96,13 +100,44 @@ FL.store = {
   assignReviewer: function (facultyId, reviewerId) {
     const person = this.facultyById(facultyId);
     if (!person) return Promise.reject(new Error("Faculty was not found."));
-    person.reviewerId = reviewerId;
+    const nextId = reviewerId == null || reviewerId === "" ? "" : String(reviewerId);
+    person.reviewerId = nextId;
     this.documents.forEach(function (doc) {
       if (doc.facultyId === facultyId && (doc.status === "pending-review" || doc.status === "reviewer-required" || doc.status === "invalid")) {
-        doc.reviewerId = reviewerId;
+        doc.reviewerId = nextId;
       }
     });
-    return FL.api.send("POST", "/api/faculty/" + encodeURIComponent(facultyId) + "/reviewer", { reviewerId: reviewerId });
+    return FL.api.send("POST", "/api/faculty/" + encodeURIComponent(facultyId) + "/reviewer", {
+      reviewerId: nextId || null
+    });
+  },
+
+  createFaculty: function (payload) {
+    const store = this;
+    return FL.api.send("POST", "/api/faculty", payload).then(function (data) {
+      return store.load().then(function () { return data; });
+    });
+  },
+
+  removeFaculty: function (facultyId) {
+    const store = this;
+    return FL.api.send("DELETE", "/api/faculty/" + encodeURIComponent(facultyId)).then(function (data) {
+      return store.load().then(function () { return data; });
+    });
+  },
+
+  createReviewer: function (payload) {
+    const store = this;
+    return FL.api.send("POST", "/api/reviewers", payload).then(function (data) {
+      return store.load().then(function () { return data; });
+    });
+  },
+
+  removeReviewer: function (reviewerId) {
+    const store = this;
+    return FL.api.send("DELETE", "/api/reviewers/" + encodeURIComponent(reviewerId)).then(function (data) {
+      return store.load().then(function () { return data; });
+    });
   },
 
   addNotification: function (item) {

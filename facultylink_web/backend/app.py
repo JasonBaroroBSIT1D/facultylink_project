@@ -7,13 +7,14 @@ those table names. New mobile uploads are read from this database.
 
 import json
 import re
+import secrets
 from datetime import datetime
 from pathlib import Path
 
 import psycopg
 from flask import Flask, abort, jsonify, request, send_from_directory, session
 from psycopg.rows import dict_row
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -285,6 +286,22 @@ def ensure_evaluation_periods(conn):
                 ),
             )
     conn.execute("DELETE FROM evaluation_periods WHERE id = ANY(%s)", (list(LEGACY_PERIOD_IDS),))
+    # Align mobile preparation_periods with whatever is currently published.
+    row = conn.execute("SELECT * FROM evaluation_periods WHERE id = %s", (PERIOD_ID,)).fetchone()
+    visibility = (row["visibility"] if row else "draft") or "draft"
+    if visibility in ("reviewers", "faculty"):
+        visibility = "all"
+    if visibility not in VISIBILITY_OPTIONS:
+        visibility = "all" if row and row["published"] else "draft"
+    sync_preparation_period(
+        conn,
+        {
+            "startDate": (row["start_date"] if row else "") or "",
+            "endDate": (row["end_date"] if row else "") or "",
+            "published": visibility != "draft",
+            "visibility": visibility,
+        },
+    )
     conn.commit()
 
 
@@ -376,6 +393,73 @@ def read_evaluation_periods(conn):
     }]
 
 
+def compute_preparation_status(start_text, end_text):
+    """Map published web dates to the mobile app open/closingSoon/closed status."""
+    try:
+        start = datetime.strptime(start_text, "%Y-%m-%d").date()
+        end = datetime.strptime(end_text, "%Y-%m-%d").date()
+    except ValueError:
+        return "closed"
+    today = datetime.now().date()
+    if today > end:
+        return "closed"
+    if today < start:
+        return "open"
+    if (end - today).days <= 14:
+        return "closingSoon"
+    return "open"
+
+
+def sync_preparation_period(conn, period):
+    """Keep preparation_periods (mobile API) aligned with the admin schedule."""
+    table = conn.execute(
+        "SELECT to_regclass('public.preparation_periods') AS name"
+    ).fetchone()
+    if not table or not table["name"]:
+        return
+
+    start = period.get("startDate") or ""
+    end = period.get("endDate") or ""
+    visibility = period.get("visibility") or "draft"
+    if visibility != "all" or not start or not end:
+        conn.execute(
+            """
+            UPDATE preparation_periods
+            SET status = 'closed', is_current = TRUE
+            WHERE is_current = TRUE
+            """
+        )
+        return
+
+    status = compute_preparation_status(start, end)
+    current = conn.execute(
+        "SELECT id FROM preparation_periods WHERE is_current = TRUE ORDER BY id LIMIT 1"
+    ).fetchone()
+    if current:
+        conn.execute(
+            """
+            UPDATE preparation_periods
+            SET cycle_name = %s,
+                start_date = %s,
+                end_date = %s,
+                reviewer_available_until = %s,
+                status = %s,
+                is_current = TRUE
+            WHERE id = %s
+            """,
+            (PERIOD_LABEL, start, end, end, status, current["id"]),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO preparation_periods
+                (cycle_name, start_date, end_date, reviewer_available_until, status, is_current)
+            VALUES (%s, %s, %s, %s, %s, TRUE)
+            """,
+            (PERIOD_LABEL, start, end, end, status),
+        )
+
+
 def write_evaluation_periods(conn, periods):
     ensure_evaluation_periods(conn)
     now = datetime.now().isoformat(sep=" ", timespec="seconds")
@@ -400,6 +484,7 @@ def write_evaluation_periods(conn, periods):
                 now,
             ),
         )
+        sync_preparation_period(conn, period)
     conn.execute("DELETE FROM evaluation_periods WHERE id = ANY(%s)", (list(LEGACY_PERIOD_IDS),))
 
 
@@ -861,6 +946,311 @@ def update_document(document_id):
     return jsonify(body)
 
 
+def _temp_password():
+    return "FL-" + secrets.token_urlsafe(6)
+
+
+def ensure_faculty_mobile_defaults(conn, user_id, current_rank="Instructor I"):
+    """Create empty KRA / simulation rows the faculty app expects after login."""
+    targets = {
+        "instruction": 30,
+        "research": 30,
+        "extension": 20,
+        "professionalDevelopment": 20,
+    }
+    for kra, target in targets.items():
+        exists = conn.execute(
+            "SELECT id FROM kra_scores WHERE user_id = %s AND kra = %s",
+            (user_id, kra),
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """
+            INSERT INTO kra_scores (
+                user_id, kra, current_points, target_points, document_count, status_label, breakdown
+            ) VALUES (%s, %s, 0, %s, 0, %s, %s)
+            """,
+            (user_id, kra, target, "Incomplete", json.dumps([])),
+        )
+    if not conn.execute(
+        "SELECT id FROM rank_simulations WHERE user_id = %s",
+        (user_id,),
+    ).fetchone():
+        conn.execute(
+            """
+            INSERT INTO rank_simulations (
+                user_id, current_rank, target_rank, current_points, required_points,
+                eligibility_label, areas_to_improve
+            ) VALUES (%s, %s, %s, 0, 100, %s, %s)
+            """,
+            (
+                user_id,
+                current_rank or "Instructor I",
+                "Instructor II",
+                "Pending",
+                json.dumps([]),
+            ),
+        )
+
+
+def _clean_email(value):
+    email = str(value or "").strip().lower()
+    if not EMAIL_PATTERN.fullmatch(email):
+        return None
+    return email
+
+
+def delete_user_rows(conn, user_id):
+    """Remove dependent rows, then the user. Callers commit."""
+    conn.execute("DELETE FROM documents WHERE user_id = %s", (user_id,))
+    conn.execute("DELETE FROM notifications WHERE user_id = %s", (user_id,))
+    conn.execute("DELETE FROM kra_scores WHERE user_id = %s", (user_id,))
+    conn.execute("DELETE FROM rank_simulations WHERE user_id = %s", (user_id,))
+    conn.execute("DELETE FROM requirements WHERE user_id = %s", (user_id,))
+    conn.execute("UPDATE faculty_profiles SET reviewer_user_id = NULL WHERE reviewer_user_id = %s", (user_id,))
+    conn.execute("DELETE FROM faculty_profiles WHERE user_id = %s", (user_id,))
+    conn.execute("DELETE FROM users WHERE id = %s", (user_id,))
+
+
+@app.post("/api/faculty")
+def create_faculty():
+    conn, user = require_user()
+    if user["role"] != "admin":
+        conn.close()
+        return json_error("Only an administrator can add faculty.", 403)
+    payload = request.get_json(silent=True) or {}
+    email = _clean_email(payload.get("email"))
+    full_name = str(payload.get("fullName") or "").strip()
+    faculty_id = str(payload.get("employeeNo") or payload.get("facultyId") or "").strip()
+    department = str(payload.get("department") or "").strip()
+    college = str(payload.get("college") or "").strip() or "Not specified"
+    current_rank = str(payload.get("rank") or payload.get("currentRank") or "Instructor I").strip()
+    highest_degree = str(payload.get("education") or payload.get("highestDegree") or "").strip() or "Not specified"
+    specialization = str(payload.get("specialization") or "").strip() or "General"
+    phone = str(payload.get("contact") or payload.get("phone") or "N/A").strip() or "N/A"
+    employment = str(payload.get("employment") or "Permanent").strip() or "Permanent"
+    campus = str(payload.get("campus") or "Main Campus").strip() or "Main Campus"
+    try:
+        years = int(payload.get("yearsInService") or 0)
+    except (TypeError, ValueError):
+        years = 0
+    password = str(payload.get("password") or "").strip() or _temp_password()
+    if not email or not full_name or not department:
+        conn.close()
+        return json_error("Email, full name, and department are required.", 400)
+    if conn.execute("SELECT id FROM users WHERE lower(email) = %s", (email,)).fetchone():
+        conn.close()
+        return json_error("That email is already registered.", 409)
+    if faculty_id and conn.execute("SELECT id FROM faculty_profiles WHERE faculty_id = %s", (faculty_id,)).fetchone():
+        conn.close()
+        return json_error("That employee number is already in use.", 409)
+    reviewer_id = None
+    if payload.get("reviewerId") not in (None, ""):
+        try:
+            reviewer_id = int(payload.get("reviewerId"))
+        except (TypeError, ValueError):
+            conn.close()
+            return json_error("Choose a valid reviewer.", 400)
+        if not conn.execute("SELECT id FROM users WHERE id = %s AND role = 'reviewer'", (reviewer_id,)).fetchone():
+            conn.close()
+            return json_error("Choose a valid reviewer.", 400)
+    row = conn.execute(
+        """
+        INSERT INTO users (email, password_hash, role, created_at)
+        VALUES (%s, %s, 'faculty', %s)
+        RETURNING id
+        """,
+        (email, generate_password_hash(password), datetime.now()),
+    ).fetchone()
+    # Auto-issue an ID when HR has not provided an employee number yet.
+    if not faculty_id:
+        faculty_id = f"FL-TEMP-{row['id']:04d}"
+        while conn.execute("SELECT id FROM faculty_profiles WHERE faculty_id = %s", (faculty_id,)).fetchone():
+            faculty_id = f"FL-TEMP-{row['id']:04d}-{secrets.token_hex(2)}"
+    conn.execute(
+        """
+        INSERT INTO faculty_profiles (
+            user_id, full_name, faculty_id, department, college, current_rank,
+            highest_degree, specialization, years_in_service, employment_status,
+            campus, phone, reviewer_user_id
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            row["id"],
+            full_name,
+            faculty_id,
+            department,
+            college,
+            current_rank,
+            highest_degree,
+            specialization,
+            years,
+            employment,
+            campus,
+            phone,
+            reviewer_id,
+        ),
+    )
+    ensure_faculty_mobile_defaults(conn, row["id"], current_rank)
+    conn.execute(
+        "INSERT INTO audit_logs (actor_email, action, detail, created_at) VALUES (%s, %s, %s, %s)",
+        (
+            user["email"],
+            "Added faculty",
+            f"Created faculty account {full_name} ({email}).",
+            datetime.now().isoformat(sep=" ", timespec="seconds"),
+        ),
+    )
+    conn.commit()
+    people = [person for person in faculty_records(conn) if person["id"] == str(row["id"])]
+    conn.close()
+    return jsonify({"ok": True, "faculty": people[0] if people else None, "temporaryPassword": password}), 201
+
+
+@app.delete("/api/faculty/<faculty_id>")
+def remove_faculty(faculty_id):
+    conn, user = require_user()
+    if user["role"] != "admin":
+        conn.close()
+        return json_error("Only an administrator can remove faculty.", 403)
+    try:
+        faculty_user_id = int(faculty_id)
+    except (TypeError, ValueError):
+        conn.close()
+        return json_error("Faculty was not found.", 404)
+    person = conn.execute(
+        """
+        SELECT users.id, users.email, faculty_profiles.full_name
+        FROM users
+        JOIN faculty_profiles ON faculty_profiles.user_id = users.id
+        WHERE users.id = %s AND users.role = 'faculty'
+        """,
+        (faculty_user_id,),
+    ).fetchone()
+    if not person:
+        conn.close()
+        return json_error("Faculty was not found.", 404)
+    delete_user_rows(conn, faculty_user_id)
+    conn.execute(
+        "INSERT INTO audit_logs (actor_email, action, detail, created_at) VALUES (%s, %s, %s, %s)",
+        (
+            user["email"],
+            "Removed faculty",
+            f"Removed faculty account {person['full_name']} ({person['email']}).",
+            datetime.now().isoformat(sep=" ", timespec="seconds"),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/reviewers")
+def create_reviewer():
+    conn, user = require_user()
+    if user["role"] != "admin":
+        conn.close()
+        return json_error("Only an administrator can add reviewers.", 403)
+    payload = request.get_json(silent=True) or {}
+    email = _clean_email(payload.get("email"))
+    full_name = str(payload.get("fullName") or "").strip()
+    department = str(payload.get("department") or "Institutional Review").strip() or "Institutional Review"
+    password = str(payload.get("password") or "").strip() or _temp_password()
+    if not email or not full_name:
+        conn.close()
+        return json_error("Email and full name are required.", 400)
+    if conn.execute("SELECT id FROM users WHERE lower(email) = %s", (email,)).fetchone():
+        conn.close()
+        return json_error("That email is already registered.", 409)
+    row = conn.execute(
+        """
+        INSERT INTO users (email, password_hash, role, created_at)
+        VALUES (%s, %s, 'reviewer', %s)
+        RETURNING id
+        """,
+        (email, generate_password_hash(password), datetime.now()),
+    ).fetchone()
+    # Profile row gives the web UI a display name / office without listing them as faculty.
+    staff_id = f"REV-{row['id']:04d}"
+    conn.execute(
+        """
+        INSERT INTO faculty_profiles (
+            user_id, full_name, faculty_id, department, college, current_rank,
+            highest_degree, specialization, years_in_service, employment_status,
+            campus, phone, reviewer_user_id
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL)
+        """,
+        (
+            row["id"],
+            full_name,
+            staff_id,
+            department,
+            "Administration",
+            "Institutional Reviewer",
+            "Not specified",
+            "Document review",
+            0,
+            "Permanent",
+            "Main Campus",
+            "N/A",
+        ),
+    )
+    conn.execute(
+        "INSERT INTO audit_logs (actor_email, action, detail, created_at) VALUES (%s, %s, %s, %s)",
+        (
+            user["email"],
+            "Added reviewer",
+            f"Created reviewer account {full_name} ({email}).",
+            datetime.now().isoformat(sep=" ", timespec="seconds"),
+        ),
+    )
+    conn.commit()
+    created = conn.execute("SELECT * FROM users WHERE id = %s", (row["id"],)).fetchone()
+    body = public_user(conn, created)
+    conn.close()
+    return jsonify({"ok": True, "reviewer": body, "temporaryPassword": password}), 201
+
+
+@app.delete("/api/reviewers/<reviewer_id>")
+def remove_reviewer(reviewer_id):
+    conn, user = require_user()
+    if user["role"] != "admin":
+        conn.close()
+        return json_error("Only an administrator can remove reviewers.", 403)
+    try:
+        reviewer_user_id = int(reviewer_id)
+    except (TypeError, ValueError):
+        conn.close()
+        return json_error("Reviewer was not found.", 404)
+    reviewer = conn.execute(
+        "SELECT id, email FROM users WHERE id = %s AND role = 'reviewer'",
+        (reviewer_user_id,),
+    ).fetchone()
+    if not reviewer:
+        conn.close()
+        return json_error("Reviewer was not found.", 404)
+    assigned = conn.execute(
+        "SELECT COUNT(*) AS total FROM faculty_profiles WHERE reviewer_user_id = %s",
+        (reviewer_user_id,),
+    ).fetchone()["total"]
+    profile = profile_for(conn, reviewer_user_id)
+    name = profile["full_name"] if profile else reviewer["email"]
+    delete_user_rows(conn, reviewer_user_id)
+    conn.execute(
+        "INSERT INTO audit_logs (actor_email, action, detail, created_at) VALUES (%s, %s, %s, %s)",
+        (
+            user["email"],
+            "Removed reviewer",
+            f"Removed reviewer {name} ({reviewer['email']}). Cleared {assigned} faculty assignment(s).",
+            datetime.now().isoformat(sep=" ", timespec="seconds"),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "clearedAssignments": assigned})
+
+
 @app.post("/api/faculty/<faculty_id>/reviewer")
 def assign_reviewer(faculty_id):
     conn, user = require_user()
@@ -869,14 +1259,33 @@ def assign_reviewer(faculty_id):
         return json_error("Only an administrator can assign a reviewer.", 403)
     payload = request.get_json(silent=True) or {}
     try:
-        reviewer_id = int(payload.get("reviewerId"))
         faculty_user_id = int(faculty_id)
     except (TypeError, ValueError):
         conn.close()
         return json_error("Faculty or reviewer was not found.", 404)
-    reviewer = conn.execute("SELECT id FROM users WHERE id = %s AND role = 'reviewer'", (reviewer_id,)).fetchone()
-    person = conn.execute("SELECT user_id FROM faculty_profiles WHERE user_id = %s", (faculty_user_id,)).fetchone()
-    if not reviewer or not person:
+    raw_reviewer = payload.get("reviewerId")
+    if raw_reviewer in (None, "", "null"):
+        reviewer_id = None
+    else:
+        try:
+            reviewer_id = int(raw_reviewer)
+        except (TypeError, ValueError):
+            conn.close()
+            return json_error("Faculty or reviewer was not found.", 404)
+        reviewer = conn.execute("SELECT id FROM users WHERE id = %s AND role = 'reviewer'", (reviewer_id,)).fetchone()
+        if not reviewer:
+            conn.close()
+            return json_error("Faculty or reviewer was not found.", 404)
+    person = conn.execute(
+        """
+        SELECT faculty_profiles.user_id
+        FROM faculty_profiles
+        JOIN users ON users.id = faculty_profiles.user_id
+        WHERE faculty_profiles.user_id = %s AND users.role = 'faculty'
+        """,
+        (faculty_user_id,),
+    ).fetchone()
+    if not person:
         conn.close()
         return json_error("Faculty or reviewer was not found.", 404)
     conn.execute(
@@ -1025,7 +1434,13 @@ def home():
 
 @app.get("/<path:filename>")
 def assets(filename):
-    if filename.startswith("backend") or filename.startswith("_") or ".." in filename.replace("\\", "/").split("/"):
+    # Never let the static catch-all shadow /api/* (POST would become 405).
+    if (
+        filename.startswith("api/")
+        or filename.startswith("backend")
+        or filename.startswith("_")
+        or ".." in filename.replace("\\", "/").split("/")
+    ):
         abort(404)
     target = (ROOT / filename).resolve()
     if ROOT not in target.parents or not target.is_file():

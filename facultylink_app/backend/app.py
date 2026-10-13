@@ -24,6 +24,7 @@ from models import (
     User,
     db,
 )
+from schedule import preparation_period_payload
 from scoring import process_upload, refresh_user_scores
 from seed import seed_if_empty
 
@@ -178,7 +179,7 @@ def dashboard_payload(user: User):
         ],
         "recentFeedback": feedback,
         "simulation": user.simulation.to_dict() if user.simulation else None,
-        "preparationPeriod": period.to_dict() if period else None,
+        "preparationPeriod": preparation_period_payload(db, period),
     }
 
 
@@ -366,7 +367,36 @@ def requirements(user):
 @faculty_required
 def simulation(user):
     if not user.simulation:
-        return jsonify({"error": "Simulation not available."}), 404
+        rank = user.profile.current_rank if user.profile else "Instructor I"
+        user.simulation = RankSimulation(
+            user_id=user.id,
+            current_rank=rank,
+            target_rank="Instructor II",
+            current_points=0,
+            required_points=100,
+            eligibility_label="Pending",
+            areas_to_improve=[],
+        )
+        if not user.kra_scores:
+            for kra, target in (
+                ("instruction", 30),
+                ("research", 30),
+                ("extension", 20),
+                ("professionalDevelopment", 20),
+            ):
+                db.session.add(
+                    KraScore(
+                        user_id=user.id,
+                        kra=kra,
+                        current_points=0,
+                        target_points=target,
+                        document_count=0,
+                        status_label="Incomplete",
+                        breakdown=[],
+                    )
+                )
+        db.session.add(user.simulation)
+        db.session.commit()
     return jsonify(user.simulation.to_dict())
 
 
@@ -409,9 +439,10 @@ def clear_notifications(user):
 @jwt_required(optional=True)
 def preparation_period():
     period = PreparationPeriod.query.filter_by(is_current=True).first()
-    if not period:
+    payload = preparation_period_payload(db, period)
+    if not payload:
         return jsonify({"error": "No current preparation period."}), 404
-    return jsonify(period.to_dict())
+    return jsonify(payload)
 
 
 @app.post("/api/auth/staff-login")
@@ -513,6 +544,11 @@ def admin_period_api(user):
     data = request.get_json(silent=True) or {}
     period.cycle_name = data.get("cycleName", period.cycle_name)
     period.status = data.get("status", period.status)
+    if data.get("startDate"):
+        period.start_date = datetime.fromisoformat(str(data["startDate"])[:10]).date()
+    if data.get("endDate"):
+        period.end_date = datetime.fromisoformat(str(data["endDate"])[:10]).date()
+        period.reviewer_available_until = period.end_date
     write_audit(user.email, "update_period_api", period.cycle_name)
     db.session.commit()
     return jsonify(period.to_dict())
@@ -532,7 +568,10 @@ def root():
 
 with app.app_context():
     db.create_all()
-    seed_if_empty()
+    # Demo Maria + sample documents only when explicitly enabled.
+    # Default off so wiping documents in Postgres is not undone on API restart.
+    if app.config.get("SEED_DEMO_DATA"):
+        seed_if_empty()
 
 
 if __name__ == "__main__":

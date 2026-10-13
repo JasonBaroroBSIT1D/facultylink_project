@@ -112,7 +112,7 @@ FL.admin = {
       });
       const host = document.getElementById("reviewer-table");
       if (!reviewers.length) {
-        host.innerHTML = FL.ui.empty("No reviewers", "No reviewer matches this search.");
+        host.innerHTML = FL.ui.empty("No reviewers", "Add a reviewer to begin assigning faculty.");
         return;
       }
       host.innerHTML = `<table class="data"><thead><tr><th>Reviewer</th><th>Assigned faculty</th><th>Assigned documents</th><th>Review status</th><th></th></tr></thead><tbody>
@@ -121,13 +121,14 @@ FL.admin = {
           const documents = FL.store.documents.filter(function (doc) { return doc.reviewerId === reviewer.id; });
           const open = documents.filter(FL.documents.needsAction).length;
           return `<tr>
-            <td><strong>${FL.esc(reviewer.name)}</strong><div class="sub">${FL.esc(reviewer.department)}</div></td>
+            <td><strong>${FL.esc(reviewer.name)}</strong><div class="sub">${FL.esc(reviewer.email || reviewer.department)}</div></td>
             <td>${people.length}</td>
             <td>${documents.length}</td>
             <td>${open ? FL.ui.badge("pending", open + " open") : FL.ui.badge("valid", "No open items")}</td>
             <td class="action-cell">
               <button class="btn btn-small btn-ghost" type="button" data-view="${FL.esc(reviewer.id)}">View assigned work</button>
               <button class="btn btn-small btn-primary" type="button" data-assign="${FL.esc(reviewer.id)}">Assign / Reassign</button>
+              <button class="btn btn-small btn-ghost" type="button" data-remove-reviewer="${FL.esc(reviewer.id)}">Remove</button>
             </td>
           </tr>`;
         }).join("")}
@@ -138,16 +139,25 @@ FL.admin = {
       host.querySelectorAll("[data-assign]").forEach(function (button) {
         button.addEventListener("click", function () { FL.admin.assign(session, button.getAttribute("data-assign"), draw); });
       });
+      host.querySelectorAll("[data-remove-reviewer]").forEach(function (button) {
+        button.addEventListener("click", function () { FL.admin.removeReviewer(session, button.getAttribute("data-remove-reviewer"), draw); });
+      });
     };
     page.innerHTML = `
-      <div class="page-head"><div>
-        <p class="eyebrow">Assignments</p>
-        <h1>Reviewers</h1>
-        <p class="lede">Assign and reassign faculty to institutional reviewers. Open items stay with the reviewer until a decision is recorded.</p>
-      </div></div>
+      <div class="page-head">
+        <div>
+          <p class="eyebrow">Assignments</p>
+          <h1>Reviewers</h1>
+          <p class="lede">Add or remove institutional reviewers, then assign or reassign faculty. Open items stay with the reviewer until a decision is recorded.</p>
+        </div>
+        <button class="btn btn-primary" type="button" id="reviewer-add">Add reviewer</button>
+      </div>
       <div class="toolbar"><label class="search"><span class="sr-only">Search reviewers</span><input id="reviewer-search" type="search" placeholder="Search reviewers or assigned faculty"></label></div>
       <div class="card"><div class="table-wrap" id="reviewer-table"></div></div>`;
     document.getElementById("reviewer-search").addEventListener("input", draw);
+    document.getElementById("reviewer-add").addEventListener("click", function () {
+      FL.admin.addReviewer(session, draw);
+    });
     draw();
   },
 
@@ -161,8 +171,68 @@ FL.admin = {
     FL.ui.modal({ title: reviewer.name, body: body, cancelLabel: "Close" });
   },
 
+  addReviewer: function (session, redraw) {
+    FL.ui.modal({
+      title: "Add reviewer",
+      confirmLabel: "Create reviewer",
+      body: `
+        <label class="field"><span>Full name</span><input id="reviewer-full-name" type="text" required></label>
+        <label class="field"><span>Email</span><input id="reviewer-email" type="email" required></label>
+        <label class="field"><span>Office / department</span><input id="reviewer-department" type="text" value="Institutional Review"></label>
+        <label class="field"><span>Temporary password (optional)</span><input id="reviewer-password" type="text" placeholder="Auto-generated if blank"></label>
+        <p class="note">The reviewer can sign in to this web portal with the email and temporary password.</p>`,
+      onConfirm: function () {
+        const payload = {
+          fullName: document.getElementById("reviewer-full-name").value.trim(),
+          email: document.getElementById("reviewer-email").value.trim(),
+          department: document.getElementById("reviewer-department").value.trim() || "Institutional Review",
+          password: document.getElementById("reviewer-password").value.trim()
+        };
+        if (!payload.fullName || !payload.email) {
+          FL.ui.toast("Enter the reviewer’s name and email.", "danger");
+          return false;
+        }
+        FL.store.createReviewer(payload).then(function (data) {
+          const admin = FL.store.userById(session.userId);
+          return FL.audit.record(admin, "Added reviewer", data.reviewer && data.reviewer.id, "Created " + payload.fullName + ".").then(function () {
+            return data;
+          });
+        }).then(function (data) {
+          FL.ui.toast("Reviewer added. Temporary password: " + (data.temporaryPassword || "(set)"), "ok");
+          redraw();
+        }).catch(function (error) {
+          FL.ui.toast(error.message || "Reviewer was not added.", "danger");
+        });
+      }
+    });
+  },
+
+  removeReviewer: function (session, reviewerId, redraw) {
+    const reviewer = FL.store.userById(reviewerId);
+    if (!reviewer) return;
+    const assigned = FL.store.faculty.filter(function (person) { return person.reviewerId === reviewerId; }).length;
+    FL.ui.modal({
+      title: "Remove reviewer",
+      danger: true,
+      confirmLabel: "Remove reviewer",
+      body: `<p>Remove <strong>${FL.esc(reviewer.name)}</strong>? ${assigned ? assigned + " faculty assignment(s) will be cleared." : "No faculty are currently assigned."}</p>`,
+      onConfirm: function () {
+        FL.store.removeReviewer(reviewerId).then(function () {
+          FL.ui.toast(reviewer.name + " was removed.", "ok");
+          redraw();
+        }).catch(function (error) {
+          FL.ui.toast(error.message || "Reviewer was not removed.", "danger");
+        });
+      }
+    });
+  },
+
   assign: function (session, reviewerId, redraw) {
     const reviewer = FL.store.userById(reviewerId);
+    if (!FL.store.faculty.length) {
+      FL.ui.toast("Add faculty before assigning a reviewer.", "danger");
+      return;
+    }
     const options = FL.store.faculty.map(function (person) {
       const current = FL.store.userById(person.reviewerId);
       return `<option value="${FL.esc(person.id)}">${FL.esc(person.name)} — ${FL.esc(current ? current.name : "Unassigned")}</option>`;
@@ -179,6 +249,39 @@ FL.admin = {
           return FL.audit.record(admin, "Reassigned reviewer", person.id, "Assigned " + person.name + " to " + reviewer.name + ".");
         }).then(function () {
           FL.ui.toast("Assignment saved.", "ok");
+          redraw();
+        }).catch(function (error) {
+          FL.ui.toast(error.message || "Assignment was not saved.", "danger");
+        });
+      }
+    });
+  },
+
+  changeFacultyReviewer: function (session, facultyId, redraw) {
+    const person = FL.store.facultyById(facultyId);
+    if (!person) return;
+    const reviewers = FL.store.users.filter(function (user) { return user.role === "reviewer"; });
+    if (!reviewers.length) {
+      FL.ui.toast("Add a reviewer first, then assign faculty.", "danger");
+      return;
+    }
+    const options = [`<option value="">Unassigned</option>`].concat(reviewers.map(function (reviewer) {
+      const selected = String(person.reviewerId) === String(reviewer.id) ? " selected" : "";
+      return `<option value="${FL.esc(reviewer.id)}"${selected}>${FL.esc(reviewer.name)}</option>`;
+    })).join("");
+    FL.ui.modal({
+      title: "Change reviewer for " + person.name,
+      body: `<label class="field"><span>Reviewer</span><select id="change-reviewer">${options}</select></label><p class="note">Open documents for this faculty member follow the new reviewer.</p>`,
+      confirmLabel: "Save assignment",
+      onConfirm: function () {
+        const reviewerId = document.getElementById("change-reviewer").value;
+        const reviewer = FL.store.userById(reviewerId);
+        const admin = FL.store.userById(session.userId);
+        FL.store.assignReviewer(facultyId, reviewerId || null).then(function () {
+          const label = reviewer ? reviewer.name : "Unassigned";
+          return FL.audit.record(admin, "Reassigned reviewer", person.id, "Set " + person.name + " to " + label + ".");
+        }).then(function () {
+          FL.ui.toast("Reviewer assignment saved.", "ok");
           redraw();
         }).catch(function (error) {
           FL.ui.toast(error.message || "Assignment was not saved.", "danger");
