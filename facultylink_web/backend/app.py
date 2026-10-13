@@ -12,7 +12,8 @@ from datetime import datetime
 from pathlib import Path
 
 import psycopg
-from flask import Flask, abort, jsonify, request, send_from_directory, session
+from flask import Flask, abort, jsonify, request, send_file, send_from_directory, session
+import mimetypes
 from psycopg.rows import dict_row
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -311,6 +312,9 @@ def read_kra_settings(conn):
 
 def ensure_review_support(conn):
     conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS indicator_id TEXT")
+    conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS criterion_id TEXT")
+    conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS mime_type TEXT")
+    conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_size INTEGER")
     conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS reviewer_score NUMERIC")
     conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS reviewer_remarks TEXT")
     conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS review_snapshot TEXT")
@@ -729,39 +733,68 @@ def load_review(raw):
     return review if isinstance(review, dict) else None
 
 
+def _file_type_label(file_name, mime_type):
+    name = (file_name or "").lower()
+    mime = (mime_type or "").lower()
+    if mime.startswith("image/") or name.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")):
+        return "Image"
+    if "pdf" in mime or name.endswith(".pdf"):
+        return "PDF"
+    if name.endswith((".doc", ".docx")) or "word" in mime:
+        return "Word"
+    if mime:
+        return mime.split("/")[-1].upper()
+    return "File"
+
+
 def document_record(row):
     submitted = str(row["submitted_at"] or "")[:10]
     author = row["author"] or ""
     kra = row["kra"] or ""
     info = row["extracted_info"]
-    if not isinstance(info, str):
-        info = "" if info is None else str(info)
-    text = row["extracted_text"] or row["validation_result"] or row["title"]
+    if isinstance(info, str):
+        extracted_info = {"Note": info} if info.strip() else {}
+    elif isinstance(info, dict):
+        extracted_info = {str(k): "" if v is None else str(v) for k, v in info.items()}
+    else:
+        extracted_info = {}
+    text = (row["extracted_text"] or "").strip()
     stored_indicator = row.get("indicator_id") or ""
+    stored_criterion = row.get("criterion_id") or ""
     score = row.get("reviewer_score")
+    mime = row.get("mime_type") or ""
+    size = row.get("file_size")
+    has_file = bool(row.get("file_path"))
+    size_label = f"{round(size / 1024, 1)} KB" if isinstance(size, (int, float)) and size else ("On file" if has_file else "Unavailable")
+    excerpt = extracted_info.get("OCR excerpt") or text[:420]
     record = {
         "id": row["public_id"],
         "facultyId": str(row["user_id"]),
         "name": row["title"],
         "fileName": row["file_name"] or row["title"],
-        "fileType": "PDF",
-        "fileSize": "On file",
+        "fileType": _file_type_label(row.get("file_name"), mime),
+        "fileSize": size_label,
+        "mimeType": mime,
         "pages": 1,
         "indicatorId": stored_indicator or KRA_INDICATORS.get(kra),
+        "criterionId": stored_criterion,
         "kraId": KRA_IDS.get(kra, ""),
+        "hasFile": has_file,
+        "fileUrl": f"/api/documents/{row['public_id']}/file" if has_file else "",
         "reviewerId": "",
         "dateSubmitted": submitted,
         "hash": row["file_hash"] or "",
         "status": STATUS_TO_WEB.get(row["status"], "pending-review"),
         "databasePoints": row["points"],
         "contribution": [{"author": author or "Faculty", "percent": 100, "subject": True}],
+        "extractedInfo": extracted_info,
         "ocr": {
             "status": "completed",
             "confidence": 0.9,
             "title": row["title"],
             "authors": [part.strip() for part in author.split(";") if part.strip()] or ["Faculty"],
             "date": submitted,
-            "content": " ".join(part for part in [text, info, kra] if part),
+            "content": excerpt or row["validation_result"] or "",
         },
         "feedback": row["reviewer_feedback"] or "",
         "remarks": row.get("reviewer_remarks") or "",
@@ -1014,6 +1047,63 @@ def awarded_review(incoming, kra_settings):
         "capturedAt": datetime.now().isoformat(sep=" ", timespec="seconds"),
     }
     return snapshot, None
+
+
+@app.get("/api/documents/<document_id>/file")
+def download_document_file(document_id):
+    """Serve the original uploaded file for reviewers/admins (session auth)."""
+    conn, user = require_user()
+    if user["role"] not in {"reviewer", "admin"}:
+        conn.close()
+        return json_error("Sign in as a reviewer or administrator to open the file.", 401)
+    ensure_review_support(conn)
+    row = conn.execute("SELECT * FROM documents WHERE public_id = %s", (document_id,)).fetchone()
+    if not row:
+        conn.close()
+        return json_error("Document not found.", 404)
+    allowed = visible_faculty_ids(conn, user)
+    if allowed is not None and row["user_id"] not in allowed:
+        conn.close()
+        return json_error("This document is not assigned to you.", 403)
+    path = row.get("file_path") or ""
+    mime = row.get("mime_type") or mimetypes.guess_type(row.get("file_name") or path)[0] or "application/octet-stream"
+    name = row.get("file_name") or Path(path).name
+    conn.close()
+    file_path = resolve_upload_path(path)
+    if not file_path:
+        return json_error("Original file is not available on the server.", 404)
+    return send_file(
+        file_path,
+        mimetype=mime,
+        as_attachment=False,
+        download_name=name,
+        max_age=0,
+    )
+
+
+def resolve_upload_path(stored):
+    """Find the original file even when DB stores a relative mobile uploads path."""
+    if not stored:
+        return None
+    candidate = Path(stored)
+    if candidate.is_file():
+        return candidate.resolve()
+    # Shared mobile upload folder: ../facultylink_app/backend/uploads
+    mobile_uploads = (ROOT.parent / "facultylink_app" / "backend" / "uploads").resolve()
+    parts = Path(stored)
+    for option in (
+        mobile_uploads / parts.name,
+        mobile_uploads / parts,
+        Path.cwd() / parts,
+        ROOT / parts,
+    ):
+        try:
+            resolved = option.resolve()
+        except OSError:
+            continue
+        if resolved.is_file():
+            return resolved
+    return None
 
 
 @app.put("/api/documents/<document_id>")

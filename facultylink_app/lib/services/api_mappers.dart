@@ -86,6 +86,12 @@ FacultyDocument documentFromJson(Map<String, dynamic> json) {
     extractedInfo: _stringMap(json['extractedInfo']),
     reviewerFeedback: json['reviewerFeedback'] as String?,
     validationResult: json['validationResult'] as String?,
+    indicatorId: json['indicatorId'] as String?,
+    criterionId: json['criterionId'] as String?,
+    mimeType: json['mimeType'] as String?,
+    fileSize: (json['fileSize'] as num?)?.toInt(),
+    hasFile: json['hasFile'] == true,
+    fileUrl: json['fileUrl'] as String?,
   );
 }
 

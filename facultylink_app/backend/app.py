@@ -2,7 +2,10 @@ from datetime import datetime, timezone
 from functools import wraps
 from uuid import uuid4
 
-from flask import Flask, jsonify, request
+import mimetypes
+from pathlib import Path
+
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from flask_jwt_extended import (
     JWTManager,
@@ -12,6 +15,7 @@ from flask_jwt_extended import (
 )
 
 from config import Config
+from kra_catalog import catalog_for_api, criterion_for_indicator, validate_selection
 from models import (
     AuditLog,
     Document,
@@ -41,6 +45,9 @@ def ensure_shared_schema():
     """Add columns the shared DB may already have from the web backend."""
     statements = [
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS indicator_id VARCHAR(80)",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS criterion_id VARCHAR(80)",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS mime_type VARCHAR(120)",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_size INTEGER",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS reviewer_score DOUBLE PRECISION",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS reviewer_remarks TEXT",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS review_snapshot TEXT",
@@ -297,28 +304,51 @@ def get_document(user, public_id):
     return jsonify(doc.to_dict())
 
 
+@app.get("/api/kra-catalog")
+@jwt_required()
+def kra_catalog():
+    """Annex I hierarchy for upload forms (structure only; scoring stays in kra_settings)."""
+    return jsonify(catalog_for_api())
+
+
 @app.post("/api/documents")
 @faculty_required
 def create_document(user):
-    title = (request.form.get("title") or "").strip()
-    category = request.form.get("category") or "teachingRecords"
+    category = request.form.get("category") or "supportingEvidence"
     kra = request.form.get("kra") or "instruction"
     author = (request.form.get("author") or "").strip()
+    indicator_id = (request.form.get("indicatorId") or "").strip() or None
+    criterion_id = (request.form.get("criterionId") or "").strip() or None
     uploaded = request.files.get("file")
+    if not uploaded or not uploaded.filename:
+        return jsonify({"error": "A document file is required."}), 400
+
+    ok, message = validate_selection(
+        kra=kra, criterion_id=criterion_id, indicator_id=indicator_id
+    )
+    if not ok:
+        return jsonify({"error": message}), 400
+    if indicator_id and not criterion_id:
+        criterion_id = criterion_for_indicator(indicator_id)
+
+    file_name = request.form.get("fileName") or uploaded.filename
+    # Title defaults to the uploaded filename (without extension).
+    title = (request.form.get("title") or "").strip() or Path(file_name).stem.replace("_", " ").replace("-", " ").strip()
     if not title:
         return jsonify({"error": "Title is required."}), 400
+    safe = f"{uuid4().hex}_{Path(file_name).name}"
+    upload_dir = Path(app.config["UPLOAD_FOLDER"]).resolve()
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    saved_path = (upload_dir / safe).resolve()
+    uploaded.save(saved_path)
+    mime_type = uploaded.mimetype or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+    file_size = saved_path.stat().st_size if saved_path.exists() else None
 
-    file_name = request.form.get("fileName") or (uploaded.filename if uploaded else "evidence.pdf")
-    saved_path = None
-    if uploaded and uploaded.filename:
-        safe = f"{uuid4().hex}_{uploaded.filename}"
-        saved_path = app.config["UPLOAD_FOLDER"] / safe
-        uploaded.save(saved_path)
-
+    # Keep faculty-selected KRA; OCR still assists reviewer validation.
     processed = process_upload(
         title=title,
         author=author,
-        file_path=str(saved_path) if saved_path else None,
+        file_path=str(saved_path),
         declared_kra=kra,
     )
     if processed["file_hash"]:
@@ -326,6 +356,10 @@ def create_document(user):
             user_id=user.id, file_hash=processed["file_hash"]
         ).first()
         if duplicate:
+            try:
+                saved_path.unlink(missing_ok=True)
+            except OSError:
+                pass
             return jsonify({"error": "Duplicate document ignored.", "existingId": duplicate.public_id}), 409
 
     doc = Document(
@@ -333,20 +367,24 @@ def create_document(user):
         user_id=user.id,
         title=title,
         category=category,
-        kra=processed["kra"] or kra,
+        kra=kra,
         submitted_at=datetime.now(timezone.utc),
         status=processed["status"],
         points=processed["points"],
         file_name=file_name,
-        file_path=str(saved_path) if saved_path else None,
+        file_path=str(saved_path),  # absolute path so web/mobile can both resolve it
         file_hash=processed["file_hash"],
-        author=author,
+        author=author or None,
         extracted_info=processed["extracted_info"],
         extracted_text=processed["extracted_text"],
         validation_result=processed["validation_result"],
         author_count=processed["author_count"],
         base_points=processed["base_points"],
         flagged_for_review=processed["flagged_for_review"],
+        indicator_id=indicator_id,
+        criterion_id=criterion_id,
+        mime_type=mime_type,
+        file_size=file_size,
     )
     db.session.add(doc)
     add_notification(
@@ -359,6 +397,62 @@ def create_document(user):
     write_audit(user.email, "upload_document", title)
     db.session.commit()
     return jsonify(doc.to_dict()), 201
+
+
+def _authorized_document(user, public_id):
+    doc = Document.query.filter_by(public_id=public_id).first()
+    if not doc:
+        return None, (jsonify({"error": "Document not found."}), 404)
+    if user.role == "admin":
+        return doc, None
+    if user.role == "faculty":
+        if doc.user_id != user.id:
+            return None, (jsonify({"error": "Not authorized to access this document."}), 403)
+        return doc, None
+    if user.role == "reviewer":
+        return doc, None
+    return None, (jsonify({"error": "Not authorized to access this document."}), 403)
+
+
+@app.get("/api/documents/<public_id>/file")
+@jwt_required()
+def download_document_file(public_id):
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Authentication required."}), 401
+    doc, err = _authorized_document(user, public_id)
+    if err:
+        return err
+    file_path = _resolve_upload_path(doc.file_path)
+    if not file_path:
+        return jsonify({"error": "Original file is not available."}), 404
+    mime = doc.mime_type or mimetypes.guess_type(doc.file_name or str(file_path))[0] or "application/octet-stream"
+    return send_file(
+        file_path,
+        mimetype=mime,
+        as_attachment=False,
+        download_name=doc.file_name or file_path.name,
+        max_age=0,
+    )
+
+
+def _resolve_upload_path(stored: str | None) -> Path | None:
+    """Resolve absolute or relative upload paths from the shared uploads folder."""
+    if not stored:
+        return None
+    candidate = Path(stored)
+    if candidate.is_file():
+        return candidate.resolve()
+    upload_dir = Path(app.config["UPLOAD_FOLDER"]).resolve()
+    relative = candidate.name if candidate.is_absolute() else candidate
+    alt = (upload_dir / relative).resolve()
+    if alt.is_file():
+        return alt
+    # Also try basename inside uploads (legacy relative paths like uploads\\file.pdf).
+    alt2 = (upload_dir / Path(stored).name).resolve()
+    if alt2.is_file():
+        return alt2
+    return None
 
 
 @app.post("/api/documents/<public_id>/process")

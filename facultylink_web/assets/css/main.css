@@ -579,10 +579,59 @@ table.data tr.is-selected { background: #f3fbfb; }
 .tab-panel.is-active { display: block; }
 .jump { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 .preview { background: #e7eef3; border-radius: 12px; padding: 16px; }
+.preview-clean { background: transparent; padding: 0; }
 .preview-page { background: white; min-height: 220px; padding: 22px; border: 1px solid var(--line); box-shadow: 0 8px 18px rgba(12, 35, 64, 0.06); }
 .preview-kicker { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
-.ocr-content { background: #f7fafb; border-radius: 10px; padding: 12px; }
-.block-label { margin: 14px 0 6px; font-size: 1rem; }
+.document-stage .card-head { align-items: flex-start; }
+.document-stage .card-head .sub { margin: 4px 0 0; color: var(--muted); font-size: 0.86rem; }
+.original-file { display: grid; gap: 0; }
+.original-file-frame {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: auto;
+  min-height: 420px;
+  max-height: 70vh;
+}
+.original-file-frame--doc {
+  border-radius: 14px;
+  min-height: 560px;
+  max-height: min(78vh, 820px);
+  overflow: hidden;
+  box-shadow: 0 10px 24px rgba(12, 35, 64, 0.08);
+}
+.original-file-frame iframe,
+.original-file-frame img {
+  display: block;
+  width: 100%;
+  min-height: 420px;
+  border: 0;
+  background: #fff;
+}
+.original-file-frame--doc iframe,
+.original-file-frame--doc img {
+  min-height: 560px;
+  height: min(78vh, 820px);
+}
+.original-file-frame img {
+  width: auto;
+  max-width: 100%;
+  min-height: 0;
+  margin: 0 auto;
+}
+.ocr-facts { margin-bottom: 4px; }
+.ocr-content {
+  background: #f7fafb;
+  border-radius: 12px;
+  padding: 12px 14px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  line-height: 1.45;
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+.block-label { margin: 14px 0 6px; font-size: 0.95rem; color: var(--navy); }
 .workflow { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .workflow li { background: #f6f8fa; border-radius: 12px; padding: 10px; font-size: 0.86rem; }
 .workflow li span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #d7e0e8; margin-bottom: 6px; font-size: 0.78rem; }

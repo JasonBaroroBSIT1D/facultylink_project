@@ -76,13 +76,16 @@ def test_document_upload_and_duplicate(client):
         "title": "Journal Article on Inquiry Classrooms",
         "category": "researchPublications",
         "kra": "research",
+        "criterionId": "kra2-a",
+        "indicatorId": "kra2-a-journal-sole",
         "author": "Maria Santos",
     }
     files = {"file": (io.BytesIO(b"same-bytes-for-hash"), "article.txt")}
     created = client.post("/api/documents", data={**payload, **files}, headers=headers)
-    assert created.status_code == 201
+    assert created.status_code == 201, created.get_json()
     body = created.get_json()
     assert body["kra"] == "research"
+    assert body["criterionId"] == "kra2-a"
     assert body["status"] == "pendingReview"
 
     duplicate = client.post(

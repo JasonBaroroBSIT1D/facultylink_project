@@ -95,8 +95,8 @@ def process_upload(*, title: str, author: str | None, file_path: str | None, dec
     else:
         extracted["OCR"] = "Tesseract was not available or the file had no readable text. Keyword rules used the title and author."
 
-    missing_fields = not title or not author
-    flagged = missing_fields or ambiguous or not text.strip()
+    missing_title = not title
+    flagged = missing_title or ambiguous or not text.strip()
     validation = (
         "Flagged for reviewer validation."
         if flagged
@@ -106,7 +106,7 @@ def process_upload(*, title: str, author: str | None, file_path: str | None, dec
         "kra": kra,
         "author_count": authors,
         "base_points": base,
-        "points": 0 if flagged and missing_fields else int(round(points)),
+        "points": 0 if missing_title else int(round(points)),
         "extracted_info": extracted,
         "extracted_text": text,
         "file_hash": file_hash(file_path),

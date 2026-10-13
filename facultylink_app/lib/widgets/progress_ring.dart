@@ -20,6 +20,11 @@ class ProgressRing extends StatelessWidget {
   final Color backgroundColor;
   final Widget? child;
 
+  double get _safeProgress {
+    if (progress.isNaN || progress.isInfinite) return 0;
+    return progress.clamp(0, 1);
+  }
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -34,7 +39,7 @@ class ProgressRing extends StatelessWidget {
             color: backgroundColor,
           ),
           CircularProgressIndicator(
-            value: progress.clamp(0, 1),
+            value: _safeProgress,
             strokeWidth: strokeWidth,
             color: color,
             strokeCap: StrokeCap.round,
@@ -58,12 +63,17 @@ class LinearProgressLabeled extends StatelessWidget {
   final Color color;
   final double height;
 
+  double get _safeProgress {
+    if (progress.isNaN || progress.isInfinite) return 0;
+    return progress.clamp(0, 1);
+  }
+
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(height),
       child: LinearProgressIndicator(
-        value: progress.clamp(0, 1),
+        value: _safeProgress,
         minHeight: height,
         color: color,
         backgroundColor: color.withValues(alpha: 0.12),

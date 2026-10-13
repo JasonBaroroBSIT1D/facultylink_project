@@ -6,178 +6,207 @@ import '../models/models.dart';
 import '../theme/app_colors.dart';
 import '../utils/formatters.dart';
 
+/// Compact prep-period strip. Tap opens details so lists stay short to scroll.
 class PreparationPeriodCard extends StatelessWidget {
   const PreparationPeriodCard({super.key, this.compact = false});
 
   final bool compact;
 
   static const disclaimer =
-      'IMPORTANT: FacultyLink is a preparatory and self-assessment platform. The document validation, KRA scores, rank simulation, and reviewer feedback provided through FacultyLink do not constitute the official DBM–CHED evaluation or final rank upgrade/reclassification decision.';
+      'FacultyLink is preparatory self-assessment only. Scores and reviewer feedback here are not the official DBM–CHED evaluation or final rank decision.';
 
   @override
   Widget build(BuildContext context) {
     final period = AppState.instance.preparationPeriod;
     final palette = _statusPalette(period.status);
+    final start = formatDisplayDate(period.startDate);
+    final end = formatDisplayDate(period.endDate);
+    final until = formatDisplayDate(period.reviewerAvailableUntil);
+    final available = period.status != PreparationPeriodStatus.closed;
 
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(compact ? 14 : 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: () => _showDetails(context, period, palette),
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.divider),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                palette.soft.withValues(alpha: 0.45),
+              ],
+            ),
+          ),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              compact ? 12 : 14,
+              compact ? 11 : 13,
+              compact ? 12 : 14,
+              compact ? 11 : 13,
+            ),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.navy.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.event_available_outlined,
-                    color: AppColors.navy,
-                    size: 22,
-                  ),
+                Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: AppColors.navy.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.event_available_outlined,
+                        color: AppColors.navy,
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Preparation period',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                              color: AppColors.textPrimary,
+                              height: 1.15,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            period.cycleName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _StatusChip(status: period.status, palette: palette),
+                    const SizedBox(width: 2),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: AppColors.textTertiary,
+                      size: 22,
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Evaluation Preparation Period',
-                        maxLines: 2,
+                const SizedBox(height: 12),
+                _TimelineRail(
+                  start: start,
+                  end: end,
+                  accent: palette.color,
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Icon(
+                      available ? Icons.groups_outlined : Icons.lock_outline_rounded,
+                      size: 15,
+                      color: available ? AppColors.info : AppColors.textTertiary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        available
+                            ? 'Reviewers available until $until'
+                            : 'Reviewer window ended $until',
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Preparatory review before official DBM–CHED evaluation',
-                        style: TextStyle(
                           fontSize: 12,
-                          height: 1.3,
-                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                          color: available ? AppColors.navy : AppColors.textSecondary,
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _StatusChip(status: period.status, palette: palette),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              period.cycleName,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-                color: AppColors.navy,
-              ),
-            ),
-            if (!compact) ...[
-              const SizedBox(height: 6),
-              const Text(
-                'FacultyLink helps you prepare, organize, validate, and assess documentary evidence. This is not the Official Evaluation Period.',
-                style: TextStyle(
-                  fontSize: 12,
-                  height: 1.4,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: _DateTile(
-                    label: 'Review start',
-                    value: formatDisplayDate(period.startDate),
-                    icon: Icons.play_circle_outline_rounded,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _DateTile(
-                    label: 'Review end',
-                    value: formatDisplayDate(period.endDate),
-                    icon: Icons.flag_outlined,
-                  ),
+                    ),
+                    Text(
+                      'Details',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.navy.withValues(alpha: 0.75),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            _ReviewerAvailability(period: period),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: palette.soft,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(palette.icon, color: palette.color, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      period.status.guidance,
-                      style: TextStyle(
-                        fontSize: 13,
-                        height: 1.4,
-                        fontWeight: FontWeight.w600,
-                        color: palette.color,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.goldSoft.withValues(alpha: 0.55),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppColors.gold.withValues(alpha: 0.55),
-                ),
-              ),
-              child: const Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.priority_high_rounded,
-                    color: AppColors.warning,
-                    size: 18,
-                  ),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      disclaimer,
-                      style: TextStyle(
-                        fontSize: 12,
-                        height: 1.4,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+          ),
         ),
       ),
+    );
+  }
+
+  static Future<void> _showDetails(
+    BuildContext context,
+    PreparationPeriod period,
+    _StatusPalette palette,
+  ) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  period.cycleName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 17,
+                    color: AppColors.navy,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${formatDisplayDate(period.startDate)} – ${formatDisplayDate(period.endDate)}',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _DetailBlock(
+                  icon: palette.icon,
+                  color: palette.color,
+                  soft: palette.soft,
+                  text: period.status.guidance,
+                ),
+                const SizedBox(height: 8),
+                const _DetailBlock(
+                  icon: Icons.info_outline_rounded,
+                  color: AppColors.warning,
+                  soft: Color(0xFFFFF7E8),
+                  text: PreparationPeriodCard.disclaimer,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -205,6 +234,165 @@ class PreparationPeriodCard extends StatelessWidget {
   }
 }
 
+class _TimelineRail extends StatelessWidget {
+  const _TimelineRail({
+    required this.start,
+    required this.end,
+    required this.accent,
+  });
+
+  final String start;
+  final String end;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _DateEnd(label: 'Start', value: start, alignEnd: false),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  height: 3,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(99),
+                    gradient: LinearGradient(
+                      colors: [
+                        accent.withValues(alpha: 0.25),
+                        accent,
+                        accent.withValues(alpha: 0.25),
+                      ],
+                    ),
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _Dot(color: accent),
+                    _Dot(color: accent),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        _DateEnd(label: 'End', value: end, alignEnd: true),
+      ],
+    );
+  }
+}
+
+class _Dot extends StatelessWidget {
+  const _Dot({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 9,
+      height: 9,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.35),
+            blurRadius: 4,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DateEnd extends StatelessWidget {
+  const _DateEnd({
+    required this.label,
+    required this.value,
+    required this.alignEnd,
+  });
+
+  final String label;
+  final String value;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment:
+          alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textTertiary,
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DetailBlock extends StatelessWidget {
+  const _DetailBlock({
+    required this.icon,
+    required this.color,
+    required this.soft,
+    required this.text,
+  });
+
+  final IconData icon;
+  final Color color;
+  final Color soft;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+      decoration: BoxDecoration(
+        color: soft,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _StatusPalette {
   const _StatusPalette({
     required this.color,
@@ -226,7 +414,7 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: palette.soft,
         borderRadius: BorderRadius.circular(20),
@@ -239,122 +427,6 @@ class _StatusChip extends StatelessWidget {
           fontWeight: FontWeight.w800,
           fontSize: 11,
         ),
-      ),
-    );
-  }
-}
-
-class _DateTile extends StatelessWidget {
-  const _DateTile({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 14, color: AppColors.navy),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
-              height: 1.25,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ReviewerAvailability extends StatelessWidget {
-  const _ReviewerAvailability({required this.period});
-
-  final PreparationPeriod period;
-
-  @override
-  Widget build(BuildContext context) {
-    final available = period.status != PreparationPeriodStatus.closed;
-    final until = formatDisplayDate(period.reviewerAvailableUntil);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.infoSoft,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            available ? Icons.groups_outlined : Icons.groups_2_outlined,
-            color: AppColors.info,
-            size: 20,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Reviewer Availability',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    color: AppColors.navy,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  available
-                      ? 'Reviewers can conduct preparatory validation of submitted documentary requirements until $until.'
-                      : 'Reviewer availability for this preparation cycle ended on $until.',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    height: 1.4,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

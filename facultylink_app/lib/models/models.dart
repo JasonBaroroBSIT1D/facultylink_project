@@ -101,6 +101,12 @@ class FacultyDocument {
     this.extractedInfo = const {},
     this.reviewerFeedback,
     this.validationResult,
+    this.indicatorId,
+    this.criterionId,
+    this.mimeType,
+    this.fileSize,
+    this.hasFile = false,
+    this.fileUrl,
   });
 
   final String id;
@@ -115,6 +121,12 @@ class FacultyDocument {
   final Map<String, String> extractedInfo;
   final String? reviewerFeedback;
   final String? validationResult;
+  final String? indicatorId;
+  final String? criterionId;
+  final String? mimeType;
+  final int? fileSize;
+  final bool hasFile;
+  final String? fileUrl;
 
   bool get canResubmit =>
       status == DocumentStatus.needsRevision ||

@@ -100,8 +100,9 @@ class ApiClient {
     required String title,
     required String category,
     required String kra,
-    required String author,
     required String fileName,
+    String? criterionId,
+    String? indicatorId,
     List<int>? fileBytes,
   }) async {
     final request = http.MultipartRequest('POST', _uri('/api/documents'))
@@ -110,17 +111,84 @@ class ApiClient {
         'title': title,
         'category': category,
         'kra': kra,
-        'author': author,
         'fileName': fileName,
+        if (criterionId != null && criterionId.isNotEmpty) 'criterionId': criterionId,
+        if (indicatorId != null && indicatorId.isNotEmpty) 'indicatorId': indicatorId,
       });
 
     if (fileBytes != null) {
       request.files.add(http.MultipartFile.fromBytes('file', fileBytes, filename: fileName));
     }
 
-    final streamed = await _withTimeout(_http.send(request));
+    final streamed = await _http.send(request).timeout(
+      const Duration(seconds: 90),
+      onTimeout: () => throw TimeoutException('Upload timed out.'),
+    );
     final response = await http.Response.fromStream(streamed);
     return _decode(response) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> kraCatalog() async {
+    final data = await getJson('/api/kra-catalog');
+    return data is Map<String, dynamic> ? data : {'kras': []};
+  }
+
+  Future<List<int>> downloadDocumentBytes(String publicId) async {
+    final path = '/api/documents/$publicId/file';
+    final candidates = <String>{
+      baseUrl,
+      ...apiBaseUrlCandidates(),
+    }.toList();
+
+    Object? lastNetworkError;
+    ApiException? lastApiError;
+
+    for (final candidate in candidates) {
+      baseUrl = candidate;
+      try {
+        final response = await _http
+            .get(_uri(path), headers: _headers)
+            .timeout(
+              const Duration(seconds: 90),
+              onTimeout: () => throw TimeoutException('File download timed out.'),
+            );
+        if (response.statusCode >= 400) {
+          String message = 'Could not download the original file.';
+          try {
+            final decoded = jsonDecode(response.body.isEmpty ? '{}' : response.body);
+            if (decoded is Map && decoded['error'] != null) {
+              message = decoded['error'].toString();
+            } else if (response.statusCode == 401) {
+              message = 'Sign in again to open this file.';
+            } else if (response.statusCode == 404) {
+              message = 'Original file is not available on the server.';
+            }
+          } catch (_) {
+            // Keep default message.
+          }
+          lastApiError = ApiException(message, statusCode: response.statusCode);
+          // Auth / not-found will fail the same on every host — stop early.
+          if (response.statusCode == 401 ||
+              response.statusCode == 403 ||
+              response.statusCode == 404) {
+            throw lastApiError;
+          }
+          continue;
+        }
+        return response.bodyBytes;
+      } on ApiException {
+        rethrow;
+      } catch (error) {
+        lastNetworkError = error;
+      }
+    }
+
+    if (lastApiError != null) throw lastApiError;
+    throw ApiException(
+      lastNetworkError is TimeoutException
+          ? 'File download timed out. Confirm Flask is running on port 5000.'
+          : 'Cannot reach the FacultyLink API from this phone. Stay on Wi‑Fi $lanApiHost (same network as the PC), keep Flask running, or reconnect USB and run: adb reverse tcp:5000 tcp:5000',
+    );
   }
 
   dynamic _decode(http.Response response) {

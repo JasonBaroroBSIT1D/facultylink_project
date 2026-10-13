@@ -8,11 +8,13 @@ const String lanApiHost = String.fromEnvironment(
 );
 
 List<String> apiBaseUrlCandidates() {
+  // Prefer the LAN IP for physical phones. 127.0.0.1 only works with
+  // `adb reverse tcp:5000 tcp:5000` and breaks as soon as USB/reverse drops.
   final urls = <String>{
     if (kIsWeb) 'http://127.0.0.1:5000',
     if (defaultTargetPlatform == TargetPlatform.android) ...[
-      'http://127.0.0.1:5000',
       'http://$lanApiHost:5000',
+      'http://127.0.0.1:5000',
       'http://10.0.2.2:5000',
     ],
     if (defaultTargetPlatform == TargetPlatform.iOS) 'http://$lanApiHost:5000',

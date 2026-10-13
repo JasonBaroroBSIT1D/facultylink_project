@@ -100,6 +100,9 @@ class Document(db.Model):
     flagged_for_review = db.Column(db.Boolean, default=False)
     # Shared with web reviewer pipeline (same Postgres columns).
     indicator_id = db.Column(db.String(80))
+    criterion_id = db.Column(db.String(80))
+    mime_type = db.Column(db.String(120))
+    file_size = db.Column(db.Integer)
     reviewer_score = db.Column(db.Float)
     reviewer_remarks = db.Column(db.Text)
     review_snapshot = db.Column(db.Text)
@@ -120,6 +123,11 @@ class Document(db.Model):
             "reviewerFeedback": self.reviewer_feedback,
             "validationResult": self.validation_result,
             "indicatorId": self.indicator_id,
+            "criterionId": self.criterion_id,
+            "mimeType": self.mime_type,
+            "fileSize": self.file_size,
+            "hasFile": bool(self.file_path),
+            "fileUrl": f"/api/documents/{self.public_id}/file" if self.file_path else None,
             "reviewerScore": self.reviewer_score,
         }
 

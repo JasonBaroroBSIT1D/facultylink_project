@@ -32,6 +32,19 @@ enum KraType {
     }
   }
 
+  String get code {
+    switch (this) {
+      case KraType.instruction:
+        return 'KRA I';
+      case KraType.research:
+        return 'KRA II';
+      case KraType.extension:
+        return 'KRA III';
+      case KraType.professionalDevelopment:
+        return 'KRA IV';
+    }
+  }
+
   IconData get icon {
     switch (this) {
       case KraType.instruction:
@@ -85,6 +98,7 @@ enum DocumentStatus {
 }
 
 enum DocumentCategory {
+  supportingEvidence,
   teachingRecords,
   researchPublications,
   advisershipRecords,
@@ -94,6 +108,8 @@ enum DocumentCategory {
 
   String get label {
     switch (this) {
+      case DocumentCategory.supportingEvidence:
+        return 'Supporting evidence';
       case DocumentCategory.teachingRecords:
         return 'Teaching records';
       case DocumentCategory.researchPublications:

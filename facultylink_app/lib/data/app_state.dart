@@ -163,8 +163,9 @@ class AppState extends ChangeNotifier {
     required String title,
     required DocumentCategory category,
     required KraType kra,
-    required String author,
     required String fileName,
+    String? criterionId,
+    String? indicatorId,
     List<int>? fileBytes,
   }) async {
     if (usingApi) {
@@ -172,8 +173,9 @@ class AppState extends ChangeNotifier {
         title: title,
         category: category.name,
         kra: kra.name,
-        author: author,
         fileName: fileName,
+        criterionId: criterionId,
+        indicatorId: indicatorId,
         fileBytes: fileBytes,
       );
       final doc = documentFromJson(created);
@@ -192,7 +194,9 @@ class AppState extends ChangeNotifier {
         status: DocumentStatus.pendingReview,
         points: 0,
         fileName: fileName,
-        author: author,
+        criterionId: criterionId,
+        indicatorId: indicatorId,
+        hasFile: fileBytes != null,
         extractedInfo: const {
           'Status': 'Queued for processing',
         },

@@ -202,84 +202,195 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        MediaQuery.paddingOf(context).top + 12,
-        12,
-        20,
-      ),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppColors.navyDark, AppColors.navy, AppColors.navyMid],
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: AppLogo(
-                  size: 32,
-                  showWordmark: true,
-                  light: true,
-                  horizontal: true,
-                ),
-              ),
-              IconButton(
-                tooltip: 'Notifications',
-                onPressed: AppState.instance.openNotifications,
-                icon: Badge(
-                  isLabelVisible: unread > 0,
-                  label: Text('$unread'),
-                  child: const Icon(
-                    Icons.notifications_outlined,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              FacultyAvatar(
-                name: faculty.fullName,
-                size: 40,
-                onTap: AppState.instance.openProfile,
-              ),
-              const SizedBox(width: 8),
+    final top = MediaQuery.paddingOf(context).top;
+    final department = [
+      if (faculty.department.trim().isNotEmpty) faculty.department.trim(),
+      if (faculty.college.trim().isNotEmpty) faculty.college.trim(),
+    ].join(' · ');
+
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(22)),
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.navyDark,
+              AppColors.navy,
+              Color(0xFF0A4A6E),
             ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            'Welcome back, ${faculty.firstName}',
-            style: const TextStyle(
-              color: Color(0xFFD6DEE8),
-              fontSize: 13,
-            ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(16, top + 10, 12, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: AppLogo(
+                      size: 30,
+                      showWordmark: true,
+                      light: true,
+                      horizontal: true,
+                    ),
+                  ),
+                  _HeaderIconButton(
+                    tooltip: 'Notifications',
+                    onPressed: AppState.instance.openNotifications,
+                    child: Badge(
+                      isLabelVisible: unread > 0,
+                      backgroundColor: AppColors.gold,
+                      textColor: AppColors.navyDark,
+                      label: Text('$unread'),
+                      child: const Icon(
+                        Icons.notifications_none_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: AppState.instance.openProfile,
+                    customBorder: const CircleBorder(),
+                    child: FacultyAvatar(
+                      name: faculty.fullName,
+                      size: 36,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Welcome back, ${faculty.firstName}',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.72),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          faculty.fullName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            height: 1.15,
+                          ),
+                        ),
+                        if (department.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            department,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.58),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: _HeaderChip(
+                        icon: Icons.workspace_premium_outlined,
+                        label: faculty.currentRank,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            faculty.fullName,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-            ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderIconButton extends StatelessWidget {
+  const _HeaderIconButton({
+    required this.tooltip,
+    required this.onPressed,
+    required this.child,
+  });
+
+  final String tooltip;
+  final VoidCallback onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.white.withValues(alpha: 0.10),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: SizedBox(
+            width: 38,
+            height: 38,
+            child: Center(child: child),
           ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.gold.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.gold.withValues(alpha: 0.5)),
-            ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderChip extends StatelessWidget {
+  const _HeaderChip({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.gold.withValues(alpha: 0.20),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.gold.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppColors.goldSoft),
+          const SizedBox(width: 5),
+          Flexible(
             child: Text(
-              'Current rank  ·  ${faculty.currentRank}',
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: AppColors.goldSoft,
                 fontWeight: FontWeight.w700,
-                fontSize: 12,
+                fontSize: 11,
               ),
             ),
           ),

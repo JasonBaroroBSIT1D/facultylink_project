@@ -181,7 +181,8 @@ class _ComplianceTab extends StatelessWidget {
     final revision = items
         .where((r) => r.status == RequirementStatus.needsRevision)
         .length;
-    final percent = ((completed / items.length) * 100).round();
+    final ratio = items.isEmpty ? 0.0 : completed / items.length;
+    final percent = (ratio * 100).round();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
@@ -194,10 +195,10 @@ class _ComplianceTab extends StatelessWidget {
                 Row(
                   children: [
                     ProgressRing(
-                      progress: completed / items.length,
+                      progress: ratio,
                       size: 84,
                       child: Text(
-                        '$percent%',
+                        items.isEmpty ? '—' : '$percent%',
                         style: const TextStyle(
                           fontWeight: FontWeight.w800,
                           color: AppColors.navy,
@@ -205,10 +206,12 @@ class _ComplianceTab extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 16),
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        'Overall compliance with the documentary requirements in this preview.',
-                        style: TextStyle(
+                        items.isEmpty
+                            ? 'No documentary requirements are loaded yet. Upload evidence or refresh after the API is available.'
+                            : 'Overall compliance with the documentary requirements in this preview.',
+                        style: const TextStyle(
                           color: AppColors.textSecondary,
                           height: 1.4,
                         ),

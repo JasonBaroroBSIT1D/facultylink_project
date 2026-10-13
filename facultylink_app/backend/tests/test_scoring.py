@@ -76,11 +76,12 @@ def test_duplicate_file_hash_matches_same_bytes(tmp_path: Path):
     assert file_hash(str(first)) == file_hash(str(second))
 
 
-def test_process_upload_flags_missing_author():
-    result = process_upload(title="Course syllabus", author="", file_path=None, declared_kra="instruction")
+def test_process_upload_flags_missing_title():
+    result = process_upload(title="", author="", file_path=None, declared_kra="instruction")
     assert result["flagged_for_review"] is True
     assert result["status"] == "pendingReview"
     assert result["kra"] == "instruction"
+    assert result["points"] == 0
 
 
 @pytest.mark.skipif(not configure_tesseract(), reason="Tesseract is not installed")

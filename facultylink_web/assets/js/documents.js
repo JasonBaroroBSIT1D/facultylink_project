@@ -171,26 +171,21 @@ FL.documents = {
         <a href="#decision">Decision</a>
       </nav>
       <div class="review-grid">
-        <section class="card" id="document-area">
-          <div class="card-head"><h2>Document</h2><button class="btn btn-small btn-primary" type="button" id="open-doc">Open document</button></div>
-          <dl class="facts compact">
-            <div><dt>File</dt><dd>${FL.esc(doc.fileName)}</dd></div>
-            <div><dt>Type</dt><dd>${FL.esc(doc.fileType)}</dd></div>
-            <div><dt>Size</dt><dd>${FL.esc(doc.fileSize)}</dd></div>
-            <div><dt>Pages</dt><dd>${FL.esc(String(doc.pages))}</dd></div>
-            <div><dt>Submitted</dt><dd>${FL.esc(FL.formatWhen(doc.dateSubmitted))}</dd></div>
-            <div><dt>Reviewer</dt><dd>${FL.esc(reviewer ? reviewer.name : "—")}</dd></div>
-          </dl>
-          <div class="preview" id="preview">
-            <div class="preview-page">
-              <p class="preview-kicker">${FL.esc(doc.fileType)} · page 1 of ${FL.esc(String(doc.pages))}</p>
-              <h3>${FL.esc((doc.ocr && doc.ocr.title) || doc.name)}</h3>
-              <p>${FL.esc((doc.ocr && doc.ocr.content) || "The document preview will show the file when it is connected.")}</p>
+        <section class="card document-stage" id="document-area">
+          <div class="card-head">
+            <div>
+              <h2>Original document</h2>
+              <p class="sub">${FL.esc(doc.fileName)} · ${FL.esc(doc.fileType || "File")} · ${FL.esc(FL.formatWhen(doc.dateSubmitted))}${reviewer ? " · " + FL.esc(reviewer.name) : ""}</p>
             </div>
+            <button class="btn btn-small btn-primary" type="button" id="open-doc">Open in new tab</button>
+          </div>
+          <div class="preview preview-clean" id="preview">
+            ${FL.documents.originalFileHtml(doc)}
           </div>
         </section>
         <section class="card" id="ocr-area">
-          <div class="card-head"><h2>OCR information</h2>${FL.ui.statusBadge(doc.ocr.status === "completed" ? "completed" : doc.ocr.status === "processing" ? "processing" : "pending")}</div>
+          <div class="card-head"><h2>Extracted summary</h2>${FL.ui.statusBadge(doc.ocr.status === "completed" ? "completed" : doc.ocr.status === "processing" ? "processing" : "pending")}</div>
+          <p class="note">Key fields pulled from the upload for classification. Use the original document on the left for the full layout.</p>
           ${FL.documents.ocrHtml(doc)}
         </section>
       </div>
@@ -204,9 +199,13 @@ FL.documents = {
       <section class="card" id="contribution">${FL.documents.contributionHtml(scored, doc)}</section>
       <section class="card" id="decision">${FL.documents.decisionHtml(doc, canDecide)}</section>`;
     document.getElementById("open-doc").addEventListener("click", function () {
+      if (doc.fileUrl) {
+        window.open(doc.fileUrl, "_blank", "noopener");
+        return;
+      }
       FL.ui.modal({
         title: doc.fileName,
-        body: `<p>${FL.esc(doc.fileType)} · ${FL.esc(doc.fileSize)} · ${FL.esc(String(doc.pages))} pages</p><div class="preview-page"><h3>${FL.esc((doc.ocr && doc.ocr.title) || doc.name)}</h3><p>${FL.esc((doc.ocr && doc.ocr.content) || "No extracted text is available for this file yet.")}</p></div>`,
+        body: `<p>${FL.esc(doc.fileType)} · ${FL.esc(doc.fileSize)}</p><p class="note">The original file is not available on the server for this record.</p>`,
         cancelLabel: "Close"
       });
     });
@@ -252,20 +251,49 @@ FL.documents = {
     }
   },
 
+  originalFileHtml: function (doc) {
+    if (!doc.fileUrl) {
+      return `<div class="preview-page"><p class="note">Original file is not stored for this record. Use the extracted summary on the right.</p></div>`;
+    }
+    const lower = String(doc.fileName || "").toLowerCase();
+    const mime = String(doc.mimeType || "").toLowerCase();
+    const isImage = mime.indexOf("image/") === 0 || /\.(png|jpe?g|gif|webp|bmp)$/.test(lower);
+    const isPdf = mime.indexOf("pdf") >= 0 || /\.pdf$/.test(lower);
+    if (isImage) {
+      return `<div class="original-file"><div class="original-file-frame original-file-frame--doc"><img src="${FL.esc(doc.fileUrl)}" alt="${FL.esc(doc.fileName || "Uploaded document")}"></div></div>`;
+    }
+    if (isPdf) {
+      const src = FL.esc(doc.fileUrl) + "#toolbar=0&navpanes=0&scrollbar=1&view=FitH";
+      return `<div class="original-file"><div class="original-file-frame original-file-frame--doc"><iframe title="Original PDF" src="${src}"></iframe></div></div>`;
+    }
+    return `<div class="original-file"><div class="preview-page"><p>This file type opens best in its native viewer.</p><p><a class="button" href="${FL.esc(doc.fileUrl)}" target="_blank" rel="noopener">Open original file</a></p></div></div>`;
+  },
+
   ocrHtml: function (doc) {
     if (!doc.ocr || doc.ocr.status === "processing" || doc.ocr.status === "pending") {
       return FL.ui.loading(doc.ocr && doc.ocr.status === "processing" ? "OCR-result loading" : "Waiting for OCR", "Extracted title, authors, date, and content will appear here.");
     }
-    const confidence = typeof doc.ocr.confidence === "number" ? Math.round(doc.ocr.confidence * 100) + "%" : "—";
+    const info = doc.extractedInfo && typeof doc.extractedInfo === "object" ? doc.extractedInfo : {};
+    const skip = {
+      "OCR excerpt": true,
+      OCR: true,
+      Note: true
+    };
+    const fieldRows = Object.keys(info).filter(function (key) {
+      return !skip[key] && String(info[key] || "").trim();
+    }).map(function (key) {
+      return `<div><dt>${FL.esc(key)}</dt><dd>${FL.esc(String(info[key]))}</dd></div>`;
+    }).join("");
+    const excerpt = (info["OCR excerpt"] || info.OCR || doc.ocr.content || "").trim();
     return `
-      <dl class="facts">
+      <dl class="facts compact ocr-facts">
         <div><dt>Title</dt><dd>${doc.ocr.title ? FL.esc(doc.ocr.title) : FL.ui.badge("invalid", "Missing")}</dd></div>
         <div><dt>Author(s)</dt><dd>${doc.ocr.authors && doc.ocr.authors.length ? FL.esc(doc.ocr.authors.join(", ")) : FL.ui.badge("invalid", "Missing")}</dd></div>
-        <div><dt>Date</dt><dd>${doc.ocr.date ? FL.esc(FL.formatWhen(doc.ocr.date)) : FL.ui.badge("invalid", "Missing")}</dd></div>
-        <div><dt>OCR confidence</dt><dd>${FL.esc(confidence)}</dd></div>
+        <div><dt>Submitted</dt><dd>${doc.ocr.date ? FL.esc(FL.formatWhen(doc.ocr.date)) : "—"}</dd></div>
       </dl>
-      <h3 class="block-label">Content</h3>
-      <p class="ocr-content">${FL.esc(doc.ocr.content || "No content was extracted.")}</p>`;
+      ${fieldRows ? `<h3 class="block-label">Scoring snapshot</h3><dl class="facts compact ocr-facts">${fieldRows}</dl>` : ""}
+      <h3 class="block-label">Text excerpt</h3>
+      <div class="ocr-content">${excerpt ? FL.esc(excerpt) : "No readable text was extracted from this file."}</div>`;
   },
 
   classificationHtml: function (doc, validation) {

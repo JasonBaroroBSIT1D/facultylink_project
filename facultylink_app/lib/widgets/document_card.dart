@@ -10,132 +10,96 @@ class DocumentCard extends StatelessWidget {
     super.key,
     required this.document,
     this.onTap,
+    this.onView,
+    this.criterionLabel,
   });
 
   final FacultyDocument document;
   final VoidCallback? onTap;
+  final VoidCallback? onView;
+  final String? criterionLabel;
 
   @override
   Widget build(BuildContext context) {
     final date = formatDisplayDate(document.submittedAt);
-    final color = AppColors.kra(document.kra);
+    final meta = [
+      if (criterionLabel != null && criterionLabel!.isNotEmpty) criterionLabel!,
+      date,
+      if (document.points > 0) '${document.points} pts',
+    ].join(' · ');
 
     return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(16),
+      color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Ink(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.divider),
-          ),
-          child: Column(
+        onTap: onTap ?? onView,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: AppColors.kraSoft(document.kra),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(Icons.description_outlined, color: color),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          document.title,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                            color: AppColors.textPrimary,
-                            height: 1.3,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          document.category.label,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Align(
-                      alignment: Alignment.topRight,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
-                        child: StatusBadge(status: document.status, compact: true),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      document.title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: AppColors.textPrimary,
+                        height: 1.3,
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 3),
+                    Text(
+                      document.fileName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    if (meta.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        meta,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textTertiary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  _MetaChip(icon: document.kra.icon, label: document.kra.shortLabel),
-                  _MetaChip(icon: Icons.event_outlined, label: date),
-                  _MetaChip(
-                    icon: Icons.stars_outlined,
-                    label: document.points > 0
-                        ? '${document.points} pts'
-                        : 'No points yet',
-                  ),
+                  StatusBadge(status: document.status, compact: true),
+                  if (onView != null) ...[
+                    const SizedBox(height: 6),
+                    TextButton(
+                      onPressed: onView,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      child: const Text('View'),
+                    ),
+                  ],
                 ],
               ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _MetaChip extends StatelessWidget {
-  const _MetaChip({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: AppColors.textSecondary),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
       ),
     );
   }
