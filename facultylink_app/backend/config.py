@@ -43,4 +43,3 @@ class Config:
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(days=1)
     UPLOAD_FOLDER = Path(os.getenv("UPLOAD_FOLDER", BASE_DIR / "uploads"))
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
-    SEED_DEMO_DATA = os.getenv("SEED_DEMO_DATA", "").strip() in {"1", "true", "True", "yes"}

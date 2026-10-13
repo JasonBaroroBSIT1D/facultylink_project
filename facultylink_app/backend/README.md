@@ -4,12 +4,14 @@ Flask + SQLAlchemy API for the FacultyLink faculty mobile app. PostgreSQL is req
 
 FacultyLink is **preparatory**. Reviewers confirm documents. The system does not certify authenticity or replace official DBM–CHED evaluation.
 
-## Demo accounts
+## Accounts
+
+Create faculty and reviewers from the web admin. There is no startup demo seed.
+
+Default local admin (if already present in your database):
 
 | Role | Email | Password |
 | --- | --- | --- |
-| Faculty | `maria.santos@university.edu.ph` | `password123` |
-| Reviewer | `elena.cruz@university.edu.ph` | `reviewer123` |
 | Admin | `admin@university.edu.ph` | `admin123` |
 
 ## Run the API
@@ -44,7 +46,7 @@ CREATE DATABASE facultylink;
 DATABASE_URL=postgresql+psycopg://postgres:YOUR_PASSWORD@127.0.0.1:5432/facultylink
 ```
 
-3. Restart Flask (`python app.py`). It creates the ERD tables. Demo users/documents are loaded only when `SEED_DEMO_DATA=1` is set in `.env`.
+3. Restart Flask (`python app.py`). It creates the ERD tables. No demo users or documents are seeded.
 
 ### Tesseract OCR
 

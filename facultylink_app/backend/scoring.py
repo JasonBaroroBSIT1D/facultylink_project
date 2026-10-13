@@ -2,14 +2,18 @@ import hashlib
 import re
 from pathlib import Path
 
+from kra_config import (
+    DEFAULT_KRA_MAX,
+    SCORING_FORMULA,
+    document_earned_points,
+    final_score,
+    load_active_kra_config,
+    rank_weight_factor,
+)
 from ocr import extract_text
 
-KRA_TARGETS = {
-    "instruction": 30,
-    "research": 30,
-    "extension": 20,
-    "professionalDevelopment": 20,
-}
+# Fallback targets when kra_settings is unavailable (Annex I maxima).
+KRA_TARGETS = dict(DEFAULT_KRA_MAX)
 
 KRA_BASE_POINTS = {
     "instruction": 8,
@@ -59,10 +63,12 @@ def classify_kra(text: str, fallback: str | None = None) -> tuple[str, bool]:
     return matches[0][1], len(matches) > 1
 
 
-def contribution_score(base_points: int, authors: int) -> int:
+def contribution_score(base_points: float, authors: int) -> float:
+    """Provisional equal-share estimate using the shared web formula."""
     if authors <= 0:
         authors = 1
-    return round(base_points * (1 / authors))
+    percent = round(100.0 / authors, 2)
+    return final_score(base_points, percent)
 
 
 def process_upload(*, title: str, author: str | None, file_path: str | None, declared_kra: str | None):
@@ -71,12 +77,15 @@ def process_upload(*, title: str, author: str | None, file_path: str | None, dec
     kra, ambiguous = classify_kra(combined, declared_kra)
     authors = author_count(author)
     base = KRA_BASE_POINTS.get(kra, 5)
-    points = contribution_score(base, authors)
+    percent = round(100.0 / max(authors, 1), 2)
+    points = final_score(base, percent)
     extracted = {
         "Document type": "Uploaded documentary evidence",
         "Assigned KRA": kra,
         "Author count": str(authors),
         "Base points": str(base),
+        "Contribution percent": str(percent),
+        "Scoring formula": SCORING_FORMULA,
         "Contribution score": str(points),
     }
     if text.strip():
@@ -95,7 +104,7 @@ def process_upload(*, title: str, author: str | None, file_path: str | None, dec
         "kra": kra,
         "author_count": authors,
         "base_points": base,
-        "points": 0 if flagged and missing_fields else points,
+        "points": 0 if flagged and missing_fields else int(round(points)),
         "extracted_info": extracted,
         "extracted_text": text,
         "file_hash": file_hash(file_path),
@@ -105,21 +114,55 @@ def process_upload(*, title: str, author: str | None, file_path: str | None, dec
     }
 
 
-def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
-    docs = [doc for doc in user.documents if doc.status == "validated"]
-    totals = {kra: 0 for kra in KRA_TARGETS}
-    counts = {kra: 0 for kra in KRA_TARGETS}
-    for doc in docs:
-        totals[doc.kra] = totals.get(doc.kra, 0) + (doc.points or 0)
-        counts[doc.kra] = counts.get(doc.kra, 0) + 1
+def _archive_simulation_if_version_changed(sim, previous_version: int, config_version: int):
+    if previous_version and previous_version != config_version:
+        from datetime import datetime, timezone
 
-    for kra, target in KRA_TARGETS.items():
-        current = totals.get(kra, 0)
+        history = list(sim.history or [])
+        history.append(
+            {
+                "kraConfigVersion": previous_version,
+                "currentPoints": sim.current_points,
+                "requiredPoints": sim.required_points,
+                "eligibilityLabel": sim.eligibility_label,
+                "areasToImprove": sim.areas_to_improve or [],
+                "formula": sim.scoring_formula,
+                "archivedAt": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        sim.history = history[-20:]
+
+
+def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
+    config = load_active_kra_config(db)
+    targets = config.get("targets") or dict(KRA_TARGETS)
+    required = int(config.get("requiredPoints") or sum(targets.values()))
+    weight = rank_weight_factor(
+        config,
+        user.profile.current_rank if user.profile else None,
+    )
+
+    docs = [doc for doc in user.documents if doc.status == "validated"]
+    totals = {kra: 0.0 for kra in targets}
+    counts = {kra: 0 for kra in targets}
+    for doc in docs:
+        kra = doc.kra if doc.kra in targets else None
+        if kra is None:
+            continue
+        earned = document_earned_points(doc, config)
+        totals[kra] = totals.get(kra, 0.0) + earned
+        counts[kra] = counts.get(kra, 0) + 1
+
+    for kra, target in targets.items():
+        raw = totals.get(kra, 0.0) * weight
+        current = min(raw, float(target))
+        totals[kra] = current
         row = next((item for item in user.kra_scores if item.kra == kra), None)
         if row is None:
             row = KraScore(user_id=user.id, kra=kra, target_points=target)
             db.session.add(row)
-        row.current_points = current
+        row.current_points = int(round(current))
+        row.target_points = int(target)
         row.document_count = counts.get(kra, 0)
         remaining = max(target - current, 0)
         if remaining == 0:
@@ -129,8 +172,7 @@ def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
         else:
             row.status_label = "In progress"
 
-    total = sum(totals.values())
-    required = sum(KRA_TARGETS.values())
+    total = int(round(sum(totals.values())))
     sim = user.simulation
     if sim is None:
         sim = RankSimulation(
@@ -140,18 +182,36 @@ def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
             required_points=required,
         )
         db.session.add(sim)
+    else:
+        _archive_simulation_if_version_changed(
+            sim,
+            int(sim.kra_config_version or 0),
+            int(config.get("version") or 0),
+        )
+
     sim.current_points = total
     sim.required_points = required
+    sim.kra_config_version = int(config.get("version") or 0)
+    sim.scoring_formula = config.get("formula") or SCORING_FORMULA
+    sim.config_snapshot = {
+        "targets": targets,
+        "criteria": config.get("criteria") or {},
+        "indicators": config.get("indicators") or {},
+        "rankWeights": config.get("rankWeights") or {},
+        "publishedAt": config.get("publishedAt") or "",
+        "status": config.get("status") or "published",
+    }
     if user.profile:
         sim.current_rank = user.profile.current_rank
-    sim.eligibility_label = "Potentially Eligible" if total >= 60 else "Pending"
+    threshold = max(int(round(required * 0.6)), 1) if required else 0
+    sim.eligibility_label = "Potentially Eligible" if total >= threshold else "Pending"
     sim.areas_to_improve = [
         {
             "kra": kra,
-            "recommendedPoints": max(KRA_TARGETS[kra] - totals.get(kra, 0), 0),
+            "recommendedPoints": int(round(max(targets[kra] - totals.get(kra, 0), 0))),
             "guidance": f"Add documentary evidence for {kra} to close the remaining gap.",
         }
-        for kra in KRA_TARGETS
-        if totals.get(kra, 0) < KRA_TARGETS[kra]
+        for kra in targets
+        if totals.get(kra, 0) < targets[kra]
     ]
     return sim

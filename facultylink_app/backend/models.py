@@ -98,6 +98,12 @@ class Document(db.Model):
     author_count = db.Column(db.Integer, default=1)
     base_points = db.Column(db.Integer, default=0)
     flagged_for_review = db.Column(db.Boolean, default=False)
+    # Shared with web reviewer pipeline (same Postgres columns).
+    indicator_id = db.Column(db.String(80))
+    reviewer_score = db.Column(db.Float)
+    reviewer_remarks = db.Column(db.Text)
+    review_snapshot = db.Column(db.Text)
+    decided_at = db.Column(db.String(40))
 
     def to_dict(self):
         return {
@@ -113,6 +119,8 @@ class Document(db.Model):
             "extractedInfo": self.extracted_info or {},
             "reviewerFeedback": self.reviewer_feedback,
             "validationResult": self.validation_result,
+            "indicatorId": self.indicator_id,
+            "reviewerScore": self.reviewer_score,
         }
 
 
@@ -150,6 +158,14 @@ class RankSimulation(db.Model):
     required_points = db.Column(db.Integer, nullable=False, default=100)
     eligibility_label = db.Column(db.String(80), nullable=False, default="Pending")
     areas_to_improve = db.Column(db.JSON, default=list)
+    kra_config_version = db.Column(db.Integer, nullable=False, default=0)
+    scoring_formula = db.Column(
+        db.String(160),
+        nullable=False,
+        default="Final Score = Base Points × Contribution Percentage",
+    )
+    config_snapshot = db.Column(db.JSON, default=dict)
+    history = db.Column(db.JSON, default=list)
 
     def to_dict(self):
         remaining = max(self.required_points - self.current_points, 0)
@@ -167,6 +183,9 @@ class RankSimulation(db.Model):
             "remainingPoints": remaining,
             "progress": progress,
             "areasToImprove": self.areas_to_improve or [],
+            "kraConfigVersion": self.kra_config_version or 0,
+            "scoringFormula": self.scoring_formula
+            or "Final Score = Base Points × Contribution Percentage",
         }
 
 

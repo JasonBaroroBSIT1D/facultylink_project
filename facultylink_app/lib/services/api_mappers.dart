@@ -149,6 +149,9 @@ RankSimulation simulationFromJson(Map<String, dynamic> json) {
     requiredPoints: (json['requiredPoints'] as num?)?.toInt() ?? 100,
     eligibilityLabel: json['eligibilityLabel'] as String? ?? 'Pending',
     areasToImprove: areas,
+    kraConfigVersion: (json['kraConfigVersion'] as num?)?.toInt() ?? 0,
+    scoringFormula: json['scoringFormula'] as String? ??
+        'Final Score = Base Points × Contribution Percentage',
   );
 }
 

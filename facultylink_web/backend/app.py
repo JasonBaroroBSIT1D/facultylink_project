@@ -127,7 +127,11 @@ def json_error(message, status):
     return response
 
 
+SCORING_FORMULA = "Final Score = Base Points × Contribution Percentage"
+
+
 def ensure_kra_settings(conn):
+    """Shared KRA configuration table used by both web and mobile backends."""
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS kra_settings (
@@ -136,6 +140,34 @@ def ensure_kra_settings(conn):
             updated_at TEXT NOT NULL
         )
         """
+    )
+    conn.execute("ALTER TABLE kra_settings ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1")
+    conn.execute(
+        "ALTER TABLE kra_settings ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'published'"
+    )
+    conn.execute("ALTER TABLE kra_settings ADD COLUMN IF NOT EXISTS published_at TEXT")
+    conn.execute(
+        "ALTER TABLE kra_settings ADD COLUMN IF NOT EXISTS formula TEXT NOT NULL "
+        "DEFAULT 'Final Score = Base Points × Contribution Percentage'"
+    )
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    conn.execute(
+        """
+        INSERT INTO kra_settings (id, payload, updated_at, version, status, published_at, formula)
+        VALUES (1, %s, %s, 1, 'published', %s, %s)
+        ON CONFLICT (id) DO NOTHING
+        """,
+        (json.dumps({"kras": {}, "criteria": {}, "indicators": {}}), now, now, SCORING_FORMULA),
+    )
+    conn.execute(
+        """
+        UPDATE kra_settings
+        SET status = COALESCE(NULLIF(status, ''), 'published'),
+            formula = COALESCE(NULLIF(formula, ''), %s),
+            published_at = COALESCE(published_at, updated_at)
+        WHERE id = 1
+        """,
+        (SCORING_FORMULA,),
     )
     conn.commit()
 
@@ -153,7 +185,7 @@ def clean_score(value):
 def sanitize_kra_settings(payload):
     if not isinstance(payload, dict):
         return None
-    cleaned = {"kras": {}, "criteria": {}, "indicators": {}}
+    cleaned = {"kras": {}, "criteria": {}, "indicators": {}, "rankWeights": {}}
     fields = {
         "kras": ("maxPoints",),
         "criteria": ("maxPoints",),
@@ -176,19 +208,41 @@ def sanitize_kra_settings(payload):
                 item[field] = number
             if item:
                 cleaned[bucket][item_id] = item
+    weights = payload.get("rankWeights") or {}
+    if not isinstance(weights, dict):
+        return None
+    for rank_name, value in weights.items():
+        if not isinstance(rank_name, str) or not rank_name.strip() or len(rank_name) > 80:
+            return None
+        number = clean_score(value)
+        if number is None or number <= 0:
+            return None
+        cleaned["rankWeights"][rank_name.strip()] = number
     return cleaned
 
 
 def read_kra_settings(conn):
     ensure_kra_settings(conn)
-    row = conn.execute("SELECT payload FROM kra_settings WHERE id = 1").fetchone()
+    row = conn.execute(
+        "SELECT payload, version, status, published_at, formula, updated_at FROM kra_settings WHERE id = 1"
+    ).fetchone()
     if not row:
-        return {"kras": {}, "criteria": {}, "indicators": {}}
+        return {"kras": {}, "criteria": {}, "indicators": {}, "rankWeights": {}}
     try:
         payload = json.loads(row["payload"])
     except (TypeError, ValueError):
-        return {"kras": {}, "criteria": {}, "indicators": {}}
-    return sanitize_kra_settings(payload) or {"kras": {}, "criteria": {}, "indicators": {}}
+        payload = {}
+    cleaned = sanitize_kra_settings(payload) or {
+        "kras": {},
+        "criteria": {},
+        "indicators": {},
+        "rankWeights": {},
+    }
+    cleaned["version"] = int(row["version"] or 1)
+    cleaned["status"] = row["status"] or "published"
+    cleaned["publishedAt"] = row["published_at"] or row["updated_at"] or ""
+    cleaned["formula"] = row["formula"] or SCORING_FORMULA
+    return cleaned
 
 
 def ensure_review_support(conn):
@@ -489,14 +543,53 @@ def write_evaluation_periods(conn, periods):
 
 
 def write_kra_settings(conn, settings):
+    """Publish KRA scores into the shared active row and keep an archived snapshot."""
     ensure_kra_settings(conn)
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    current = conn.execute(
+        "SELECT payload, version, formula FROM kra_settings WHERE id = 1"
+    ).fetchone()
+    next_version = int((current["version"] if current else 0) or 0) + 1
+    # Archive previous published payload in the same table (not a duplicate schema).
+    if current and current["payload"]:
+        archive_id = conn.execute("SELECT COALESCE(MAX(id), 1) + 1 AS next_id FROM kra_settings").fetchone()[
+            "next_id"
+        ]
+        conn.execute(
+            """
+            INSERT INTO kra_settings (id, payload, updated_at, version, status, published_at, formula)
+            VALUES (%s, %s, %s, %s, 'archived', %s, %s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (
+                archive_id,
+                current["payload"],
+                now,
+                int(current["version"] or 1),
+                now,
+                current["formula"] or SCORING_FORMULA,
+            ),
+        )
+    # Persist only the score buckets in payload; metadata lives in columns.
+    payload = {
+        "kras": settings.get("kras") or {},
+        "criteria": settings.get("criteria") or {},
+        "indicators": settings.get("indicators") or {},
+        "rankWeights": settings.get("rankWeights") or {},
+    }
     conn.execute(
         """
-        INSERT INTO kra_settings (id, payload, updated_at)
-        VALUES (1, %s, %s)
-        ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at
+        INSERT INTO kra_settings (id, payload, updated_at, version, status, published_at, formula)
+        VALUES (1, %s, %s, %s, 'published', %s, %s)
+        ON CONFLICT (id) DO UPDATE SET
+            payload = EXCLUDED.payload,
+            updated_at = EXCLUDED.updated_at,
+            version = EXCLUDED.version,
+            status = 'published',
+            published_at = EXCLUDED.published_at,
+            formula = EXCLUDED.formula
         """,
-        (json.dumps(settings), datetime.now().isoformat(sep=" ", timespec="seconds")),
+        (json.dumps(payload), now, next_version, now, SCORING_FORMULA),
     )
 
 
@@ -756,18 +849,19 @@ def update_kra_settings():
         conn.close()
         return json_error("Enter scores from 0 through 10000.", 400)
     write_kra_settings(conn, settings)
+    published = read_kra_settings(conn)
     conn.execute(
         "INSERT INTO audit_logs (actor_email, action, detail, created_at) VALUES (%s, %s, %s, %s)",
         (
             user["email"],
             "Updated KRA scores",
-            "Saved KRA configuration scores used for FacultyLink scoring.",
+            f"Published KRA configuration version {published.get('version')} for web and mobile scoring.",
             datetime.now().isoformat(sep=" ", timespec="seconds"),
         ),
     )
     conn.commit()
     conn.close()
-    return jsonify({"ok": True, "kraSettings": settings})
+    return jsonify({"ok": True, "kraSettings": published})
 
 
 @app.put("/api/evaluation-periods")

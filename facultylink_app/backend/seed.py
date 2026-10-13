@@ -1,3 +1,8 @@
+"""Test/fixture seed data only.
+
+Not used by the live API. Pytest loads this into facultylink_test.
+"""
+
 from datetime import date, datetime
 
 from models import (

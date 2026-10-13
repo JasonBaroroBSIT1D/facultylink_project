@@ -195,6 +195,9 @@ class RankSimulation {
     required this.requiredPoints,
     required this.eligibilityLabel,
     required this.areasToImprove,
+    this.kraConfigVersion = 0,
+    this.scoringFormula =
+        'Final Score = Base Points × Contribution Percentage',
   });
 
   final String currentRank;
@@ -203,6 +206,8 @@ class RankSimulation {
   final int requiredPoints;
   final String eligibilityLabel;
   final List<ImprovementArea> areasToImprove;
+  final int kraConfigVersion;
+  final String scoringFormula;
 
   double get progress =>
       requiredPoints == 0 ? 0 : (currentPoints / requiredPoints).clamp(0, 1);

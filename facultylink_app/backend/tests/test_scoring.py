@@ -4,6 +4,7 @@ import pytest
 from PIL import Image, ImageDraw, ImageFont
 
 from ocr import configure_tesseract, extract_text
+from kra_config import final_score
 from scoring import classify_kra, contribution_score, file_hash, process_upload
 
 
@@ -22,6 +23,13 @@ def test_classify_falls_back_when_unclear():
 def test_contribution_score_divides_by_author_count():
     assert contribution_score(10, 2) == 5
     assert contribution_score(8, 1) == 8
+
+
+def test_final_score_matches_web_formula():
+    # Final Score = Base Points × Contribution Percentage
+    assert final_score(10, 60) == 6
+    assert final_score(80, 70) == 56
+    assert final_score(10, 50) == 5
 
 
 def test_duplicate_file_hash_matches_same_bytes(tmp_path: Path):

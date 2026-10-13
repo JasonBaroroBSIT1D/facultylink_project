@@ -34,6 +34,17 @@ class SimulationScreen extends StatelessWidget {
                 color: AppColors.navy,
                 background: AppColors.goldSoft,
               ),
+              if (sim.kraConfigVersion > 0) ...[
+                const SizedBox(height: 10),
+                Text(
+                  'Using published KRA configuration v${sim.kraConfigVersion}. ${sim.scoringFormula}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               SimulationResultCard(
                 simulation: sim,

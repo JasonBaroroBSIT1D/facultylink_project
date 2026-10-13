@@ -24,9 +24,10 @@ from models import (
     User,
     db,
 )
+from kra_config import load_active_kra_config
 from schedule import preparation_period_payload
 from scoring import process_upload, refresh_user_scores
-from seed import seed_if_empty
+from sqlalchemy import text
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -34,6 +35,34 @@ app.config["UPLOAD_FOLDER"].mkdir(parents=True, exist_ok=True)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 db.init_app(app)
 JWTManager(app)
+
+
+def ensure_shared_schema():
+    """Add columns the shared DB may already have from the web backend."""
+    statements = [
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS indicator_id VARCHAR(80)",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS reviewer_score DOUBLE PRECISION",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS reviewer_remarks TEXT",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS review_snapshot TEXT",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS decided_at VARCHAR(40)",
+        "ALTER TABLE rank_simulations ADD COLUMN IF NOT EXISTS kra_config_version INTEGER DEFAULT 0",
+        "ALTER TABLE rank_simulations ADD COLUMN IF NOT EXISTS scoring_formula VARCHAR(160)",
+        "ALTER TABLE rank_simulations ADD COLUMN IF NOT EXISTS config_snapshot JSON",
+        "ALTER TABLE rank_simulations ADD COLUMN IF NOT EXISTS history JSON",
+    ]
+    for sql in statements:
+        try:
+            db.session.execute(text(sql))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+
+def sync_user_scores(user: User):
+    """Recompute KRA totals and Rank Simulation from the active published config."""
+    refresh_user_scores(user, Document, KraScore, RankSimulation, db)
+    db.session.commit()
+    return user.simulation
 
 
 def current_user():
@@ -142,6 +171,7 @@ def add_notification(user_id, kind, message, document_id=None, kra=None, state="
 
 
 def dashboard_payload(user: User):
+    sync_user_scores(user)
     docs = user.documents
     validated = [d for d in docs if d.status == "validated"]
     pending = [d for d in docs if d.status == "pendingReview"]
@@ -180,6 +210,11 @@ def dashboard_payload(user: User):
         "recentFeedback": feedback,
         "simulation": user.simulation.to_dict() if user.simulation else None,
         "preparationPeriod": preparation_period_payload(db, period),
+        "kraConfig": {
+            "version": (user.simulation.kra_config_version if user.simulation else 0) or 0,
+            "formula": (user.simulation.scoring_formula if user.simulation else None)
+            or "Final Score = Base Points × Contribution Percentage",
+        },
     }
 
 
@@ -354,6 +389,7 @@ def reprocess_document(user, public_id):
 @app.get("/api/assessment/kra-scores")
 @faculty_required
 def kra_scores(user):
+    sync_user_scores(user)
     return jsonify([row.to_dict() for row in user.kra_scores])
 
 
@@ -363,41 +399,31 @@ def requirements(user):
     return jsonify([row.to_dict() for row in user.requirements])
 
 
+@app.get("/api/kra-config")
+@faculty_required
+def kra_config(user):
+    """Active published KRA configuration from the shared database."""
+    config = load_active_kra_config(db)
+    return jsonify(
+        {
+            "version": config["version"],
+            "status": config["status"],
+            "publishedAt": config["publishedAt"],
+            "formula": config["formula"],
+            "targets": config["targets"],
+            "requiredPoints": config["requiredPoints"],
+            "criteria": config["criteria"],
+            "indicators": config["indicators"],
+            "rankWeights": config["rankWeights"],
+        }
+    )
+
+
 @app.get("/api/simulation")
 @faculty_required
 def simulation(user):
-    if not user.simulation:
-        rank = user.profile.current_rank if user.profile else "Instructor I"
-        user.simulation = RankSimulation(
-            user_id=user.id,
-            current_rank=rank,
-            target_rank="Instructor II",
-            current_points=0,
-            required_points=100,
-            eligibility_label="Pending",
-            areas_to_improve=[],
-        )
-        if not user.kra_scores:
-            for kra, target in (
-                ("instruction", 30),
-                ("research", 30),
-                ("extension", 20),
-                ("professionalDevelopment", 20),
-            ):
-                db.session.add(
-                    KraScore(
-                        user_id=user.id,
-                        kra=kra,
-                        current_points=0,
-                        target_points=target,
-                        document_count=0,
-                        status_label="Incomplete",
-                        breakdown=[],
-                    )
-                )
-        db.session.add(user.simulation)
-        db.session.commit()
-    return jsonify(user.simulation.to_dict())
+    sim = sync_user_scores(user)
+    return jsonify(sim.to_dict() if sim else {})
 
 
 @app.get("/api/notifications")
@@ -568,10 +594,7 @@ def root():
 
 with app.app_context():
     db.create_all()
-    # Demo Maria + sample documents only when explicitly enabled.
-    # Default off so wiping documents in Postgres is not undone on API restart.
-    if app.config.get("SEED_DEMO_DATA"):
-        seed_if_empty()
+    ensure_shared_schema()
 
 
 if __name__ == "__main__":
