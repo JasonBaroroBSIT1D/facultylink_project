@@ -42,6 +42,7 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
   String? _webKraId;
   String? _criterionId;
   String? _indicatorId;
+  final _contributionController = TextEditingController();
   final List<_PendingUpload> _files = [];
   bool _loadingCatalog = true;
   double _progress = 0;
@@ -85,6 +86,15 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
     return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
+  Map<String, dynamic>? get _selectedIndicator {
+    for (final indicator in _indicators) {
+      if (indicator['id']?.toString() == _indicatorId) return indicator;
+    }
+    return null;
+  }
+
+  bool get _needsContribution => _selectedIndicator?['contribution'] == 'declared';
+
   List<Map<String, dynamic>> get _indicators {
     final criterion = _criteria.cast<Map<String, dynamic>?>().firstWhere(
           (c) => c?['id'] == _criterionId,
@@ -99,6 +109,12 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
   void initState() {
     super.initState();
     _loadCatalog();
+  }
+
+  @override
+  void dispose() {
+    _contributionController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadCatalog() async {
@@ -227,6 +243,14 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
       showAppSnackBar(context, 'Select an indicator under the chosen criterion.', error: true);
       return;
     }
+    double? contributionPercent;
+    if (_needsContribution) {
+      contributionPercent = double.tryParse(_contributionController.text.trim());
+      if (contributionPercent == null || contributionPercent < 0 || contributionPercent > 100) {
+        showAppSnackBar(context, 'Enter your contribution share from 0 to 100.', error: true);
+        return;
+      }
+    }
 
     final total = _files.length;
     setState(() {
@@ -251,6 +275,7 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
           fileName: file.fileName,
           criterionId: _criterionId,
           indicatorId: _indicatorId,
+          contributionPercent: contributionPercent,
           fileBytes: file.bytes,
         );
         _uploadedCount = i + 1;
@@ -415,6 +440,24 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
               onChanged: (value) => setState(() => _indicatorId = value),
               validator: (value) => value == null ? 'Select an indicator' : null,
             ),
+            if (_needsContribution) ...[
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _contributionController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Your contribution share (%) *',
+                  helperText: 'Points = indicator base points × this percentage.',
+                ),
+                validator: (value) {
+                  final parsed = double.tryParse((value ?? '').trim());
+                  if (parsed == null || parsed < 0 || parsed > 100) {
+                    return 'Enter a share from 0 to 100';
+                  }
+                  return null;
+                },
+              ),
+            ],
           ],
           const SizedBox(height: 18),
           Text(

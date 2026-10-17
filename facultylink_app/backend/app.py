@@ -115,22 +115,78 @@ def admin_jwt_required(fn):
     return wrapper
 
 
-def apply_review(doc: Document, action: str, feedback: str | None, points):
-    if action == "validate":
+def _award_points(doc: Document, points, contribution_percent, rating) -> float:
+    from scoring import score_indicator
+
+    if points is not None and points != "":
+        awarded = float(points)
+    else:
+        info = doc.extracted_info or {}
+        raw_share = contribution_percent
+        if raw_share is None and info.get("Contribution percent"):
+            try:
+                raw_share = float(info.get("Contribution percent"))
+            except (TypeError, ValueError):
+                raw_share = None
+        scored = score_indicator(
+            doc.indicator_id,
+            contribution_percent=raw_share,
+            rating=rating,
+            authors=doc.author_count or 1,
+            config=load_active_kra_config(db),
+        )
+        awarded = float(scored["points"] or doc.points or 0)
+    cap_source = score_indicator(
+        doc.indicator_id,
+        contribution_percent=100,
+        rating=100,
+        authors=1,
+        config=load_active_kra_config(db),
+    )
+    if cap_source.get("max_points") is not None:
+        awarded = min(awarded, float(cap_source["max_points"]))
+    return max(awarded, 0.0)
+
+
+def apply_review(
+    doc: Document,
+    action: str,
+    feedback: str | None,
+    points,
+    *,
+    indicator_id: str | None = None,
+    contribution_percent=None,
+    rating=None,
+):
+    if indicator_id:
+        doc.indicator_id = indicator_id
+    if action in {"validate", "correct"}:
+        awarded = _award_points(doc, points, contribution_percent, rating)
         doc.status = "validated"
-        doc.points = int(points or doc.points or 0)
+        doc.points = int(round(awarded))
+        doc.reviewer_score = awarded
         doc.reviewer_feedback = feedback or None
-        doc.validation_result = "Validated by reviewer."
+        doc.validation_result = (
+            "Corrected and validated by reviewer."
+            if action == "correct"
+            else "Validated by reviewer."
+        )
+        info = dict(doc.extracted_info or {})
+        info["Verified score"] = str(awarded)
+        if contribution_percent not in (None, ""):
+            info["Contribution percent"] = str(contribution_percent)
+        doc.extracted_info = info
         add_notification(
             doc.user_id,
             "documentValidated",
-            f"{doc.title} has been validated (+{doc.points} points).",
+            f"{doc.title} has been {'corrected' if action == 'correct' else 'validated'} (+{doc.points} points).",
             document_id=doc.public_id,
             kra=doc.kra,
         )
     elif action == "revise":
         doc.status = "needsRevision"
         doc.points = 0
+        doc.reviewer_score = None
         doc.reviewer_feedback = feedback or "Please revise and resubmit."
         doc.validation_result = "Returned for revision."
         add_notification(
@@ -144,6 +200,7 @@ def apply_review(doc: Document, action: str, feedback: str | None, points):
     elif action == "reject":
         doc.status = "invalid"
         doc.points = 0
+        doc.reviewer_score = None
         doc.reviewer_feedback = feedback or "This file could not be validated."
         doc.validation_result = "Rejected by reviewer."
         add_notification(
@@ -152,6 +209,27 @@ def apply_review(doc: Document, action: str, feedback: str | None, points):
             f"A reviewer left comments on {doc.title}.",
             document_id=doc.public_id,
             state="actionRequired",
+        )
+    elif action == "reopen":
+        doc.status = "pendingReview"
+        doc.reviewer_score = None
+        doc.decided_at = None
+        info = dict(doc.extracted_info or {})
+        info.pop("Verified score", None)
+        try:
+            provisional = float(info.get("Provisional score") or doc.base_points or 0)
+        except (TypeError, ValueError):
+            provisional = float(doc.base_points or 0)
+        doc.points = int(round(provisional))
+        doc.reviewer_feedback = feedback or "Reopened. The provisional score is visible again until the next decision."
+        doc.validation_result = "Reopened for review."
+        doc.extracted_info = info
+        add_notification(
+            doc.user_id,
+            "documentSubmitted",
+            f"{doc.title} was reopened and is pending review again.",
+            document_id=doc.public_id,
+            kra=doc.kra,
         )
     else:
         return False
@@ -331,6 +409,23 @@ def create_document(user):
     if indicator_id and not criterion_id:
         criterion_id = criterion_for_indicator(indicator_id)
 
+    contribution_raw = (request.form.get("contributionPercent") or "").strip()
+    rating_raw = (request.form.get("rating") or "").strip()
+    contribution_percent = None
+    rating = None
+    if contribution_raw:
+        try:
+            contribution_percent = float(contribution_raw)
+        except ValueError:
+            return jsonify({"error": "Contribution percentage must be a number from 0 to 100."}), 400
+        if contribution_percent < 0 or contribution_percent > 100:
+            return jsonify({"error": "Contribution percentage must be from 0 to 100."}), 400
+    if rating_raw:
+        try:
+            rating = float(rating_raw)
+        except ValueError:
+            return jsonify({"error": "Rating must be a number from 0 to 100."}), 400
+
     file_name = request.form.get("fileName") or uploaded.filename
     # Title defaults to the uploaded filename (without extension).
     title = (request.form.get("title") or "").strip() or Path(file_name).stem.replace("_", " ").replace("-", " ").strip()
@@ -350,6 +445,10 @@ def create_document(user):
         author=author,
         file_path=str(saved_path),
         declared_kra=kra,
+        indicator_id=indicator_id,
+        contribution_percent=contribution_percent,
+        rating=rating,
+        config=load_active_kra_config(db),
     )
     if processed["file_hash"]:
         duplicate = Document.query.filter_by(
@@ -379,7 +478,7 @@ def create_document(user):
         extracted_text=processed["extracted_text"],
         validation_result=processed["validation_result"],
         author_count=processed["author_count"],
-        base_points=processed["base_points"],
+        base_points=int(round(processed["base_points"] or 0)),
         flagged_for_review=processed["flagged_for_review"],
         indicator_id=indicator_id,
         criterion_id=criterion_id,
@@ -395,6 +494,8 @@ def create_document(user):
         kra=doc.kra,
     )
     write_audit(user.email, "upload_document", title)
+    db.session.flush()
+    sync_user_scores(user)
     db.session.commit()
     return jsonify(doc.to_dict()), 201
 
@@ -466,8 +567,9 @@ def reprocess_document(user, public_id):
         author=doc.author,
         file_path=doc.file_path,
         declared_kra=doc.kra,
+        indicator_id=doc.indicator_id,
+        config=load_active_kra_config(db),
     )
-    doc.kra = processed["kra"]
     doc.points = processed["points"]
     doc.extracted_info = processed["extracted_info"]
     doc.extracted_text = processed["extracted_text"]
@@ -476,6 +578,7 @@ def reprocess_document(user, public_id):
     doc.validation_result = processed["validation_result"]
     doc.status = "pendingReview"
     write_audit(user.email, "reprocess_document", doc.public_id)
+    sync_user_scores(user)
     db.session.commit()
     return jsonify(doc.to_dict())
 
@@ -612,8 +715,16 @@ def review_document_api(user, public_id):
         return jsonify({"error": "Document not found."}), 404
     data = request.get_json(silent=True) or {}
     action = data.get("action")
-    if not apply_review(doc, action, data.get("feedback"), data.get("points")):
-        return jsonify({"error": "Action must be validate, revise, or reject."}), 400
+    if not apply_review(
+        doc,
+        action,
+        data.get("feedback"),
+        data.get("points"),
+        indicator_id=(data.get("indicatorId") or "").strip() or None,
+        contribution_percent=data.get("contributionPercent"),
+        rating=data.get("rating"),
+    ):
+        return jsonify({"error": "Action must be validate, correct, revise, reject, or reopen."}), 400
     write_audit(user.email, f"review_{action}", doc.public_id)
     db.session.commit()
     return jsonify(doc.to_dict())

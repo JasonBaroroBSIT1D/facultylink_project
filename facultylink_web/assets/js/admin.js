@@ -31,7 +31,7 @@ FL.admin = {
         <div>
           <p class="eyebrow">${FL.esc(FL.institution.name)}</p>
           <h1>Administrator Dashboard</h1>
-          <p class="lede">Faculty readiness, document validation, KRA estimates, reviewer activity, and compliance under DBM–CHED Joint Circular No. 3, s. 2022.</p>
+          <p class="lede">Faculty readiness, document validation, KRA estimates, reviewer activity, and compliance under DBM–CHED Joint Circular No. 01, s. 2026.</p>
         </div>
       </div>
       <div class="stat-grid">
@@ -489,7 +489,7 @@ FL.admin = {
     document.getElementById("reset-scores").addEventListener("click", function () {
       FL.ui.modal({
         title: "Restore official scores",
-        body: "<p>This replaces the saved scores with the DBM–CHED Joint Circular values.</p>",
+        body: "<p>This replaces the saved scores with the DBM–CHED Joint Circular No. 01, s. 2026 values.</p>",
         confirmLabel: "Restore",
         onConfirm: function () {
           FL.store.saveKraSettings({ kras: {}, criteria: {}, indicators: {} }).then(function () {

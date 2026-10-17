@@ -285,9 +285,9 @@ FL.faculty = {
       <section class="tab-panel" data-panel="Evaluation">
         <article class="card">
           <div class="card-head"><h2>Evaluation information</h2></div>
-          <p>Evaluation follows DBM–CHED Joint Circular No. 3, s. 2022 (NBC 461, 9th Cycle). Only accomplishments within the evaluation period are credited. There is no double counting of points. The SUC governing board has the final decision on reclassification.</p>
+          <p>Evaluation follows DBM–CHED Joint Circular No. 01, s. 2026 (Enhanced Implementing Guidelines of JC No. 3, s. 2022). Only accomplishments within the evaluation period (August 1, 2023 – July 31, 2026) are credited. There is no double counting of points. The SUC governing board has the final decision on reclassification.</p>
           <dl class="facts compact">
-            <div><dt>Cycle</dt><dd>NBC 461, 9th Cycle</dd></div>
+            <div><dt>Cycle</dt><dd>JC No. 01, s. 2026 (Aug 1, 2023 – Jul 31, 2026)</dd></div>
             <div><dt>Current rank</dt><dd>${FL.esc(person.rank)}</dd></div>
             <div><dt>Estimated weighted score</dt><dd>${sim.aggregate.weightedScore != null ? sim.aggregate.weightedScore : sim.aggregate.total} / 100</dd></div>
             <div><dt>Table 2.2 band</dt><dd>${FL.esc(sim.aggregate.weightBand || "—")}</dd></div>

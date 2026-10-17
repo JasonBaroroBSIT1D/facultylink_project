@@ -1,7 +1,7 @@
 /**
  * FacultyLink scoring.
  * Final Score = Base Points × Contribution Percentage.
- * Caps are the maximums stated in DBM–CHED Joint Circular No. 3, s. 2022.
+ * Caps are the maximums stated in DBM–CHED Joint Circular No. 01, s. 2026.
  */
 window.FL = window.FL || {};
 
@@ -173,6 +173,7 @@ FL.scoring = {
     kras.forEach(function (kra) { byId[kra.id] = kra; });
     const groupTotals = {};
     const bestByIndicator = {};
+    const provisionalByIndicator = {};
 
     documents.forEach(function (doc) {
       if (doc.review && typeof doc.review.finalScore === "number" && doc.status === "approved") {
@@ -181,6 +182,17 @@ FL.scoring = {
         const current = bestByIndicator[indicatorKey];
         if (!current || review.finalScore > current.review.finalScore) {
           bestByIndicator[indicatorKey] = { doc: doc, review: review };
+        }
+        return;
+      }
+      if (doc.status === "pending-review" || doc.status === "pendingReview") {
+        const provisional = FL.scoring.scoreDocument(doc);
+        if (provisional.finalScore !== null && provisional.indicator && provisional.kra) {
+          const key = provisional.indicator.id;
+          const previous = provisionalByIndicator[key];
+          if (!previous || provisional.finalScore > previous.scored.finalScore) {
+            provisionalByIndicator[key] = { doc: doc, scored: provisional };
+          }
         }
         return;
       }
@@ -221,7 +233,31 @@ FL.scoring = {
       if (!criterion) return;
       criterion.earned = FL.scoring.round(criterion.earned + review.finalScore);
       criterion.locked = FL.scoring.round(criterion.locked + review.finalScore);
-      criterion.documents.push({ id: doc.id, name: doc.name, points: review.finalScore });
+      criterion.documents.push({ id: doc.id, name: doc.name, points: review.finalScore, provisional: false });
+    });
+
+    Object.keys(provisionalByIndicator).forEach(function (indicatorKey) {
+      if (bestByIndicator[indicatorKey]) return;
+      const entry = provisionalByIndicator[indicatorKey];
+      const scored = entry.scored;
+      const kra = byId[scored.kra.id];
+      if (!kra) return;
+      const criterion = kra.criteria.find(function (item) { return item.id === scored.criterion.id; }) || kra.criteria[0];
+      if (!criterion) return;
+      let points = scored.finalScore;
+      const group = scored.indicator.groupMax;
+      if (group) {
+        const key = facultyId + ":" + group.group;
+        const used = groupTotals[key] || 0;
+        const room = Math.max(0, group.max - used);
+        points = Math.min(points, room);
+        groupTotals[key] = used + points;
+      }
+      const roomInCriterion = Math.max(0, criterion.maxPoints - criterion.earned);
+      points = FL.scoring.round(Math.min(points, roomInCriterion));
+      criterion.earned = FL.scoring.round(criterion.earned + points);
+      criterion.documents.push({ id: entry.doc.id, name: entry.doc.name, points: points, provisional: true });
+      kra.provisional = true;
     });
 
     kras.forEach(function (kra) {
@@ -272,8 +308,8 @@ FL.scoring = {
         gaps.push({ tone: "warning", text: doc.id + " was returned for revision." });
       } else if (doc.status === "rejected") {
         gaps.push({ tone: "danger", text: doc.id + " was rejected and is not included in the estimate." });
-      } else if (doc.status === "pending-review") {
-        gaps.push({ tone: "warning", text: doc.id + " is still in the review queue and is not included in the estimate." });
+      } else if (doc.status === "pending-review" || doc.status === "pendingReview") {
+        gaps.push({ tone: "info", text: doc.id + " is pending review. Its score is included as a provisional estimate until a reviewer decides." });
       }
       if (validation.evidenceStatus === "missing") {
         gaps.push({ tone: "danger", text: doc.id + " is missing required documentary evidence." });

@@ -481,7 +481,7 @@ class AboutScreen extends StatelessWidget {
           ),
           SizedBox(height: 16),
           Text(
-            'FacultyLink is an intelligent document-validated faculty self-assessment system designed to help faculty members prepare for DBM–CHED Joint Circular rank upgrade and reclassification.',
+            'FacultyLink is an intelligent document-validated faculty self-assessment system designed to help faculty members prepare for DBM–CHED Joint Circular No. 01, s. 2026 rank upgrade and reclassification.',
             style: TextStyle(height: 1.45, fontSize: 15),
           ),
           SizedBox(height: 16),

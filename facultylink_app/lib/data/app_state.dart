@@ -166,6 +166,7 @@ class AppState extends ChangeNotifier {
     required String fileName,
     String? criterionId,
     String? indicatorId,
+    double? contributionPercent,
     List<int>? fileBytes,
   }) async {
     if (usingApi) {
@@ -176,6 +177,7 @@ class AppState extends ChangeNotifier {
         fileName: fileName,
         criterionId: criterionId,
         indicatorId: indicatorId,
+        contributionPercent: contributionPercent,
         fileBytes: fileBytes,
       );
       final doc = documentFromJson(created);

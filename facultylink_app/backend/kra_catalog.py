@@ -1,4 +1,4 @@
-"""Annex I KRA/criterion/indicator catalog for upload organization (structure only)."""
+"""JC No. 01, s. 2026 KRA/criterion/indicator catalog for upload organization (structure only)."""
 
 from __future__ import annotations
 
@@ -26,7 +26,22 @@ def load_catalog() -> dict:
 
 
 def catalog_for_api() -> dict:
-    return load_catalog()
+    from indicator_rules import load_indicator_rules
+
+    catalog = json.loads(json.dumps(load_catalog()))
+    rules = load_indicator_rules()
+    for kra in catalog.get("kras") or []:
+        for criterion in kra.get("criteria") or []:
+            for indicator in criterion.get("indicators") or []:
+                rule = rules.get(indicator.get("id") or "")
+                if not rule:
+                    continue
+                indicator["points"] = rule.get("points")
+                indicator["maxPoints"] = rule.get("maxPoints")
+                indicator["contribution"] = rule.get("contribution")
+                if rule.get("multiplier") is not None:
+                    indicator["multiplier"] = rule.get("multiplier")
+    return catalog
 
 
 def find_indicator(indicator_id: str | None) -> dict | None:

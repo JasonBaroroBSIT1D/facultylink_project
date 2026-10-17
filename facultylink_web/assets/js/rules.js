@@ -1,26 +1,28 @@
 /**
  * FacultyLink — predefined evaluation rules.
- * Source: DBM–CHED Joint Circular No. 3, s. 2022 (NBC 461, 9th Cycle), Annexes I–III.
- * Point values, maximums, evidence, and conditions are taken from that circular.
+ * Source: DBM–CHED Joint Circular No. 01, s. 2026 (Enhanced Implementing Guidelines
+ * of DBM–CHED JC No. 3, s. 2022), dated 18 May 2026 — Annex A scoring matrix.
+ * Point values, maximums, evidence, and conditions follow that circular.
  * Contribution for co-authored outputs is the percentage declared by the authors;
  * it is not a fixed split invented by FacultyLink.
  * Final Score = Base Points × Contribution Percentage (FacultyLink scoring relationship,
- * consistent with Annex II: points × declared percentage contribution).
+ * consistent with the circular’s contribution rules).
  */
 window.FL = window.FL || {};
 
 FL.rules = {
-  citation: "DBM–CHED Joint Circular No. 3, s. 2022 (NBC 461, 9th Cycle)",
-  annex: "Annex I — Evaluation Criteria; Annex II — Implementing Guidelines",
+  citation: "DBM–CHED Joint Circular No. 01, s. 2026 (Enhanced Implementing Guidelines of JC No. 3, s. 2022)",
+  annex: "JC No. 01, s. 2026 — Annex A (Criteria, Points, and Required Evidence)",
+  evaluationPeriod: "August 1, 2023 – July 31, 2026",
   formula: "Final Score = Base Points × Contribution Percentage",
-  formulaNote: "For an output with two or more claimants, each faculty declares a contribution percentage. Points received equal the points allocated for the indicator multiplied by that percentage. A sole author, sole inventor, or sole developer is credited the full base points.",
+  formulaNote: "For an output with two or more claimants, each faculty declares a contribution percentage on the prescribed Certificate of Contribution form. Points received equal the points allocated for the indicator multiplied by that percentage. A sole author, sole inventor, or sole developer is credited the full base points.",
   globalConditions: [
-    "Faculty are evaluated on Instruction; Research, Invention, and Creative Work; Extension; and Professional Development within the evaluation period.",
-    "Only performance and accomplishments within the evaluation period are given points.",
-    "There shall be no double counting of points. An item already counted in one criterion cannot be counted in another.",
-    "“Local” includes national, regional, municipal, city, and barangay levels unless a criterion states otherwise.",
-    "All declarations must be supported by the documentary evidence stipulated in Annex I.",
-    "The SUC governing board has the final decision on reclassification under Republic Act No. 8292. FacultyLink does not replace that decision."
+    "Faculty are evaluated on Instruction; Research, Innovation and/or Creative Work; Extension; and Professional Development within the evaluation period (August 1, 2023 – July 31, 2026, and succeeding three-year cycles unless CHED and DBM provide otherwise).",
+    "Only performance and accomplishments within the prescribed evaluation period are given points.",
+    "There shall be no double counting of points. A single document used for one indicator cannot be used for another, unless specifically permitted (for example, a paper presented and published in an indexed journal in the same period may earn both presentation and research points).",
+    "Outputs must be aligned with the faculty member’s field of specialization or allied field, unless otherwise specified.",
+    "All declarations must be supported by the documentary evidence required under the circular.",
+    "The SUC governing board has the final authority on reclassification decisions. FacultyLink does not replace that decision."
   ],
   kras: [
     {
@@ -28,51 +30,59 @@ FL.rules = {
       code: "KRA I",
       name: "Instruction",
       maxPoints: 100,
-      summary: "A faculty may earn a total of 100 points from Criteria A, B, and C.",
+      summary: "A faculty may earn a total of 100 points from Criteria A (60), B (30), and C (10).",
       criteria: [
         {
           id: "kra1-a",
           name: "Criterion A — Teaching Effectiveness",
           maxPoints: 60,
-          description: "The faculty member’s ability to organize teaching-learning processes so students can maximize their learning potential, and the delivery of instruction that results in academic excellence.",
+          description: "Ability to design and implement instructional strategies that enhance student learning, assessed through SET (60%) and SEF (40%).",
           indicators: [
             {
               id: "kra1-a-student",
-              name: "Student Evaluation (60%)",
-              pointsLabel: "OR ÷ 100 × 36",
+              name: "Student Evaluation of Teachers (SET) (60%)",
+              pointsLabel: "OSETR ÷ 100 × 36",
               maxPoints: 36,
               contribution: "not-applicable",
-              formula: { type: "rating", multiplier: 36 },
-              evidence: ["Student Evaluation Rating using the prescribed template"],
+              formula: {
+                type: "rating",
+                multiplier: 36
+              },
+              evidence: [
+                "Student Evaluation Rating Summary / FEDAF using the prescribed template"
+              ],
               conditions: [
-                "All faculty are evaluated by all students in all classes handled each semester.",
-                "Points = OR ÷ 100 × 36, where OR is the average of the average evaluation ratings given by students per semester, and 36 is 60% of the 60-point criterion maximum.",
-                "For the evaluation period covering 1 July 2019 to 31 July 2023, SUCs use the existing Instrument for Teaching Effectiveness prescribed by the previous Zonal Centers.",
-                "A newly hired faculty who applies within the evaluation period uses six semesters as the divisor.",
-                "A faculty on full-time study leave for less than three years uses the QCE results of the remaining semesters as the divisor. A faculty on leave for the entire period may use the QCE results of the semesters before the leave."
+                "SET Points = (OSETR ÷ 100) × 36, where OSETR is the Overall SET Rating and 36 is 60% of the 60-point criterion maximum.",
+                "For AY 2023–2024 and 2024–2025, NBC 461 QCE instrument results (transmuted from a 25-point scale to 100) remain recognized.",
+                "Starting the first semester of AY 2025–2026, SUCs may implement CMO No. 19, s. 2025; mandatory from the second semester of AY 2025–2026 onward, with FEDAF as the required document.",
+                "Special-status divisor rules in Section 10 apply (study leave, maternity leave, sabbatical, newly appointed faculty, laboratory schools)."
               ]
             },
             {
               id: "kra1-a-supervisor",
-              name: "Supervisor’s Evaluation (40%)",
-              pointsLabel: "OR ÷ 100 × 24",
+              name: "Supervisor’s Evaluation of Faculty (SEF) (40%)",
+              pointsLabel: "OSEFR ÷ 100 × 24",
               maxPoints: 24,
               contribution: "not-applicable",
-              formula: { type: "rating", multiplier: 24 },
-              evidence: ["Supervisor’s Evaluation Rating using the prescribed template"],
+              formula: {
+                type: "rating",
+                multiplier: 24
+              },
+              evidence: [
+                "Supervisor’s Evaluation Rating / FEDAF using the prescribed template"
+              ],
               conditions: [
-                "The immediate superior evaluates the faculty at the end of each semester: faculty by the Department Chair, Department Chair by the Dean, Dean by the VPAA, and VPAA by the President.",
-                "Points = OR ÷ 100 × 24, where 24 is 40% of the 60-point criterion maximum.",
-                "Total teaching-effectiveness points = student-evaluation points + supervisor-evaluation points."
+                "SEF Points = (OSEFR ÷ 100) × 24, where OSEFR is the Overall SEF Rating and 24 is 40% of the 60-point criterion maximum.",
+                "Teaching Effectiveness Points (TEP) = SET Points + SEF Points."
               ]
             }
           ]
         },
         {
           id: "kra1-b",
-          name: "Criterion B — Curriculum and Instructional Materials Developed",
+          name: "Criterion B — Instructional Materials Development and Academic Programs",
           maxPoints: 30,
-          description: "Development of new instructional materials and other learning resources, and formulation or revision of academic programs.",
+          description: "Instructional materials developed and approved for use, and academic degree programs developed or substantially revised and implemented by the SUC.",
           indicators: [
             {
               id: "kra1-b-textbook-sole",
@@ -81,14 +91,16 @@ FL.rules = {
               maxPoints: 30,
               contribution: "sole",
               evidence: [
-                "Copy of the instructional material developed",
-                "Copy of evidence that the instructional material has undergone peer review or evaluation",
-                "Copy of approval for use of the instructional material in the department or institution"
+                "Copy of the instructional material developed (complete set where applicable)",
+                "Evidence of IMDC (or equivalent) evaluation and approval for use",
+                "Approved syllabus or course guide listing the material as a reference",
+                "Librarian certification that the material is in library holdings"
               ],
               conditions: [
-                "A textbook is a book which is an exposition of generally accepted principles in one subject, intended primarily as a basis for instruction in a classroom or pupil-book-teacher situation (RA 8047).",
-                "The subject matter must be within the discipline of the faculty being evaluated.",
-                "The material must be approved for use by the department or college."
+                "A textbook is an exposition of generally accepted principles in one subject, intended primarily as a basis for instruction (RA 8047).",
+                "Must be published by an SUC press, academic press, or registered educational publishing company and approved for use by the SUC.",
+                "Must be original work (not a mere compilation), aligned with the faculty’s field, evaluated by IMDC or equivalent, listed in the syllabus, and in library holdings.",
+                "In the next evaluation cycle, the textbook must also be duly copyrighted."
               ]
             },
             {
@@ -98,115 +110,140 @@ FL.rules = {
               pointsLabel: "% contribution × 30",
               maxPoints: 30,
               contribution: "declared",
-              baseIndicator: "Sole author of a textbook",
               evidence: [
-                "Copy of the instructional material developed",
-                "Copy of evidence of peer review or evaluation",
-                "Copy of approval for use",
-                "Certification signed by all authors indicating each author’s contribution, using the prescribed template"
+                "Copy of the instructional material developed (complete set where applicable)",
+                "Evidence of IMDC (or equivalent) evaluation and approval for use",
+                "Approved syllabus or course guide listing the material as a reference",
+                "Librarian certification that the material is in library holdings",
+                "Certificate of Contribution Form_IM (Annex C), signed by all co-authors and certified by the dean"
               ],
               conditions: [
-                "For an output with two or more claimants, each faculty declares a contribution percentage.",
-                "Points received = points allocated for the indicator × percentage contribution."
+                "Points received = points allocated for the indicator × declared contribution percentage."
               ]
             },
             {
-              id: "kra1-b-chapter-sole",
-              name: "Sole author of a textbook chapter",
-              points: 10,
-              maxPoints: 10,
-              contribution: "sole",
-              evidence: [
-                "Copy of the instructional material developed",
-                "Copy of evidence of peer review or evaluation",
-                "Copy of approval for use"
-              ],
-              conditions: ["Author of textbook chapters includes editors who organize the whole textbook or serve as a chapter writer."]
-            },
-            {
-              id: "kra1-b-chapter-co",
-              name: "Co-author of a textbook chapter",
-              points: 10,
-              pointsLabel: "% contribution × 10",
-              maxPoints: 10,
-              contribution: "declared",
-              evidence: [
-                "Copy of the instructional material developed",
-                "Copy of evidence of peer review or evaluation",
-                "Copy of approval for use",
-                "Author-contribution certification using the prescribed template"
-              ],
-              conditions: ["Points received = 10 × declared contribution percentage."]
-            },
-            {
               id: "kra1-b-module-sole",
-              name: "Sole author of a manual or module",
+              name: "Sole author of a module",
               points: 16,
               maxPoints: 16,
               contribution: "sole",
               evidence: [
-                "Copy of the instructional material developed",
-                "Copy of evidence of peer review or evaluation",
-                "Copy of approval for use"
+                "Copy of the instructional material developed (complete set where applicable)",
+                "Evidence of IMDC (or equivalent) evaluation and approval for use",
+                "Approved syllabus or course guide listing the material as a reference",
+                "Librarian certification that the material is in library holdings"
               ],
-              conditions: ["Modules, workbooks, and multimedia materials should be in a complete set per subject."]
+              conditions: [
+                "A stand-alone module covering all topics for an entire course, or a complete series/set of modules within a course, earns full points.",
+                "Incomplete sets are not awarded points."
+              ]
             },
             {
               id: "kra1-b-module-co",
-              name: "Co-author of a manual or module",
+              name: "Co-author of a module",
               points: 16,
               pointsLabel: "% contribution × 16",
               maxPoints: 16,
               contribution: "declared",
               evidence: [
-                "Copy of the instructional material developed",
-                "Copy of evidence of peer review or evaluation",
-                "Copy of approval for use",
-                "Author-contribution certification using the prescribed template"
+                "Copy of the instructional material developed (complete set where applicable)",
+                "Evidence of IMDC (or equivalent) evaluation and approval for use",
+                "Approved syllabus or course guide listing the material as a reference",
+                "Librarian certification that the material is in library holdings",
+                "Certificate of Contribution Form_IM (Annex C), signed by all co-authors and certified by the dean"
               ],
               conditions: [
-                "Annex II sample: a module set allocated 16 points, with declared contributions of 60% and 40%, yields 9.6 and 6.4 points."
+                "Points received = points allocated for the indicator × declared contribution percentage."
               ]
             },
             {
-              id: "kra1-b-multimedia",
-              name: "Multimedia teaching materials",
+              id: "kra1-b-manual-sole",
+              name: "Sole author of an instructional manual",
               points: 16,
               maxPoints: 16,
               contribution: "sole",
               evidence: [
-                "Copy of the instructional material developed",
-                "Copy of evidence of peer review or evaluation",
-                "Copy of approval for use"
+                "Copy of the instructional material developed (complete set where applicable)",
+                "Evidence of IMDC (or equivalent) evaluation and approval for use",
+                "Approved syllabus or course guide listing the material as a reference",
+                "Librarian certification that the material is in library holdings"
               ],
               conditions: [
-                "Includes software, prototypes, and computer-aided instructional materials for flexible learning.",
-                "Materials should be in a complete set per subject and approved for use."
+                "A stand-alone instructional manual covering an entire course, or a complete series/set, earns full points.",
+                "Incomplete sets are not awarded points."
               ]
             },
             {
-              id: "kra1-b-testing",
-              name: "Testing materials",
-              points: 10,
-              maxPoints: 10,
+              id: "kra1-b-manual-co",
+              name: "Co-author of an instructional manual",
+              points: 16,
+              pointsLabel: "% contribution × 16",
+              maxPoints: 16,
+              contribution: "declared",
+              evidence: [
+                "Copy of the instructional material developed (complete set where applicable)",
+                "Evidence of IMDC (or equivalent) evaluation and approval for use",
+                "Approved syllabus or course guide listing the material as a reference",
+                "Librarian certification that the material is in library holdings",
+                "Certificate of Contribution Form_IM (Annex C), signed by all co-authors and certified by the dean"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra1-b-multimedia-sole",
+              name: "Sole author of multimedia teaching materials",
+              points: 16,
+              maxPoints: 16,
               contribution: "sole",
-              evidence: ["Copy of the testing material and evidence that it has been validated, reliability-tested, secured, and verified by the authorized body within the institution"],
-              conditions: ["Testing materials are standardized materials such as departmental examinations."]
+              evidence: [
+                "Copy of the instructional material developed (complete set where applicable)",
+                "Evidence of IMDC (or equivalent) evaluation and approval for use",
+                "Approved syllabus or course guide listing the material as a reference",
+                "Librarian certification that the material is in library holdings",
+                "Proof of originality (concept note/instructional design rationale; timestamped project files; and/or raw source files)",
+                "Proof of pedagogical validity (expert/peer validation and/or documented student feedback)"
+              ],
+              conditions: [
+                "Simple compilations of video-recorded PowerPoint lectures without substantive instructional design are not considered.",
+                "For this cycle, any of the originality and pedagogical-validity proofs may be submitted; subsequent cycles require all."
+              ]
+            },
+            {
+              id: "kra1-b-multimedia-co",
+              name: "Co-author of multimedia teaching materials",
+              points: 16,
+              pointsLabel: "% contribution × 16",
+              maxPoints: 16,
+              contribution: "declared",
+              evidence: [
+                "Copy of the instructional material developed (complete set where applicable)",
+                "Evidence of IMDC (or equivalent) evaluation and approval for use",
+                "Approved syllabus or course guide listing the material as a reference",
+                "Librarian certification that the material is in library holdings",
+                "Certificate of Contribution Form_IM (Annex C), signed by all co-authors and certified by the dean",
+                "Proof of originality",
+                "Proof of pedagogical validity"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
             },
             {
               id: "kra1-b-program-lead",
               name: "Academic program developed or revised — Lead",
               points: 10,
               maxPoints: 10,
-              contribution: "sole",
+              contribution: "not-applicable",
               evidence: [
-                "Certification signed by the academic unit head indicating the faculty role as Lead, using the prescribed template",
-                "Governing board resolution approving implementation of the academic program developed or revised"
+                "Documentary proof of contribution (feasibility study, benchmarking, program outcomes, curriculum design/OBE mapping, stakeholder consultation)",
+                "Certification signed by the Dean specifying the faculty’s role as lead",
+                "Academic Council and Governing Board resolutions",
+                "Valid RRPA or COPC, as applicable"
               ],
               conditions: [
-                "Covers development of a new academic degree program or revision of an existing one.",
-                "Duties inherent to an administrative designation are not counted here.",
-                "The offering or revision must be approved by the governing board."
+                "Committee members claiming this indicator may not also claim administrative-designation points for the same committee under Criterion D of Extension."
               ]
             },
             {
@@ -214,30 +251,159 @@ FL.rules = {
               name: "Academic program developed or revised — Contributor",
               points: 5,
               maxPoints: 5,
-              contribution: "sole",
+              contribution: "not-applicable",
               evidence: [
-                "Certification signed by the academic unit head indicating the faculty role as Contributor, using the prescribed template",
-                "Governing board resolution approving implementation"
+                "Documentary proof of contribution",
+                "Certification signed by the Dean specifying the faculty’s role as contributor",
+                "Academic Council and Governing Board resolutions",
+                "Valid RRPA or COPC, as applicable"
               ],
-              conditions: ["Committee membership constituted for program development is credited under KRA III, Criterion D, not under this indicator."]
+              conditions: [
+                "Committee members claiming this indicator may not also claim administrative-designation points for the same committee under Criterion D of Extension."
+              ]
             }
           ]
         },
         {
           id: "kra1-c",
-          name: "Criterion C — Special Projects, Capstone Projects, Thesis, Dissertation, and Mentorship Services",
+          name: "Criterion C — Research Advising and Mentorship Services",
           maxPoints: 10,
-          description: "Service as adviser, critic, panel member, or mentor.",
+          description: "Service as adviser or panel member for student research, and mentorship/coaching of competition winners.",
           indicators: [
-            { id: "kra1-c-adviser-sp", name: "Adviser — Special Project or Capstone Project", points: 3, maxPoints: 3, contribution: "not-applicable", evidence: ["Appointment or invitation as adviser", "Evidence that the advisee passed the special project or capstone project"], conditions: ["The program must have a CHED Certificate of Program Compliance.", "The output must be completed and approved."] },
-            { id: "kra1-c-adviser-ut", name: "Adviser — Undergraduate Thesis", points: 5, maxPoints: 5, contribution: "not-applicable", evidence: ["Appointment or invitation as adviser", "Evidence that the advisee passed the undergraduate thesis"], conditions: ["The program must have a CHED Certificate of Program Compliance.", "The thesis must be completed and approved."] },
-            { id: "kra1-c-adviser-mt", name: "Adviser — Master’s Thesis", points: 8, maxPoints: 8, contribution: "not-applicable", evidence: ["Appointment or invitation as adviser", "Evidence that the advisee passed the master’s thesis"], conditions: ["The program must have a CHED Certificate of Program Compliance.", "The thesis must be completed and approved."] },
-            { id: "kra1-c-adviser-dd", name: "Adviser — Doctoral Dissertation", points: 10, maxPoints: 10, contribution: "not-applicable", evidence: ["Appointment or invitation as adviser", "Evidence that the advisee passed the dissertation"], conditions: ["The program must have a CHED Certificate of Program Compliance.", "The dissertation must be completed and approved."] },
-            { id: "kra1-c-panel-sp", name: "Panel — Special Project or Capstone Project", points: 1, maxPoints: 1, contribution: "not-applicable", evidence: ["Appointment or invitation as panel member", "Proof of participation"], conditions: ["The program must have a CHED Certificate of Program Compliance."] },
-            { id: "kra1-c-panel-ut", name: "Panel — Undergraduate Thesis", points: 1, maxPoints: 1, contribution: "not-applicable", evidence: ["Appointment or invitation as panel member", "Proof of participation"], conditions: ["The program must have a CHED Certificate of Program Compliance."] },
-            { id: "kra1-c-panel-mt", name: "Panel — Master’s Thesis", points: 2, maxPoints: 2, contribution: "not-applicable", evidence: ["Appointment or invitation as panel member", "Proof of participation"], conditions: ["The program must have a CHED Certificate of Program Compliance."] },
-            { id: "kra1-c-panel-dd", name: "Panel — Doctoral Dissertation", points: 2, maxPoints: 2, contribution: "not-applicable", evidence: ["Appointment or invitation as panel member", "Proof of participation"], conditions: ["The program must have a CHED Certificate of Program Compliance."] },
-            { id: "kra1-c-mentor", name: "Mentor of a student or team", points: 3, maxPoints: 3, contribution: "not-applicable", evidence: ["Appointment or designation as mentor", "Award or certificate received by the student or group mentored"], conditions: ["Mentorship includes coaching in academic competitions such as the Mathematics Olympiad, robotics, debate, innovation challenges, and HRM skills competitions.", "The student or team must win at the regional, national, or international level as a representative of the institution."] }
+            {
+              id: "kra1-c-adviser-sp",
+              name: "Adviser — Special Project or Capstone Project",
+              points: 3,
+              maxPoints: 3,
+              contribution: "not-applicable",
+              evidence: [
+                "Approval sheet",
+                "RRPA or COPC for the program"
+              ],
+              conditions: [
+                "Topic must be within or closely related to the faculty’s field.",
+                "Project must be successfully completed.",
+                "Advising loads generally involve up to five students per academic year."
+              ]
+            },
+            {
+              id: "kra1-c-adviser-ut",
+              name: "Adviser — Undergraduate Thesis",
+              points: 5,
+              maxPoints: 5,
+              contribution: "not-applicable",
+              evidence: [
+                "Approval sheet",
+                "RRPA or COPC for the program"
+              ],
+              conditions: [
+                "Topic must be within or closely related to the faculty’s field.",
+                "Thesis must be successfully completed."
+              ]
+            },
+            {
+              id: "kra1-c-adviser-mt",
+              name: "Adviser — Master’s Thesis",
+              points: 8,
+              maxPoints: 8,
+              contribution: "not-applicable",
+              evidence: [
+                "Approval sheet",
+                "RRPA or COPC for the program"
+              ],
+              conditions: [
+                "Topic must be within or closely related to the faculty’s field.",
+                "Thesis must be successfully completed."
+              ]
+            },
+            {
+              id: "kra1-c-adviser-dd",
+              name: "Adviser — Doctoral Dissertation",
+              points: 10,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Approval sheet",
+                "RRPA or COPC for the program"
+              ],
+              conditions: [
+                "Topic must be within or closely related to the faculty’s field.",
+                "Dissertation must be successfully completed."
+              ]
+            },
+            {
+              id: "kra1-c-panel-sp",
+              name: "Panel — Special Project or Capstone Project",
+              points: 1,
+              maxPoints: 1,
+              contribution: "not-applicable",
+              evidence: [
+                "Approval sheet",
+                "RRPA or COPC for the program"
+              ],
+              conditions: [
+                "Program must have RRPA or COPC as applicable."
+              ]
+            },
+            {
+              id: "kra1-c-panel-ut",
+              name: "Panel — Undergraduate Thesis",
+              points: 1,
+              maxPoints: 1,
+              contribution: "not-applicable",
+              evidence: [
+                "Approval sheet",
+                "RRPA or COPC for the program"
+              ],
+              conditions: [
+                "Program must have RRPA or COPC as applicable."
+              ]
+            },
+            {
+              id: "kra1-c-panel-mt",
+              name: "Panel — Master’s Thesis",
+              points: 2,
+              maxPoints: 2,
+              contribution: "not-applicable",
+              evidence: [
+                "Approval sheet",
+                "RRPA or COPC for the program"
+              ],
+              conditions: [
+                "Program must have RRPA or COPC as applicable."
+              ]
+            },
+            {
+              id: "kra1-c-panel-dd",
+              name: "Panel — Doctoral Dissertation",
+              points: 2,
+              maxPoints: 2,
+              contribution: "not-applicable",
+              evidence: [
+                "Approval sheet",
+                "RRPA or COPC for the program"
+              ],
+              conditions: [
+                "Program must have RRPA or COPC as applicable."
+              ]
+            },
+            {
+              id: "kra1-c-mentor",
+              name: "Mentor or coach of a student or team",
+              points: 3,
+              maxPoints: 3,
+              contribution: "not-applicable",
+              evidence: [
+                "Official designation or appointment as mentor/coach from the SUC President",
+                "Evidence of major prize (Champion, 1st, 2nd, or 3rd Place) at regional, national, or international level",
+                "Publicly available competition mechanics"
+              ],
+              conditions: [
+                "Local competitions and consolation prizes are not eligible.",
+                "Competition must align with the faculty’s field of specialization.",
+                "Only competitions sponsored by reputable private entities, professional organizations with national membership, consortia of SUCs, or equivalent recognized sponsors are considered."
+              ]
+            }
           ]
         }
       ]
@@ -247,37 +413,74 @@ FL.rules = {
       code: "KRA II",
       name: "Research, Innovation and/or Creative Work",
       maxPoints: 100,
-      summary: "A faculty may reach 100 points from one criterion or from a combination of Criteria A, B, and C. Each of those criteria has a maximum of 100 points, and the KRA total cannot exceed 100.",
+      summary: "A faculty may reach 100 points from one criterion or from a combination of Criteria A, B, and C. Each criterion has a maximum of 100 points; the KRA total cannot exceed 100.",
       criteria: [
         {
           id: "kra2-a",
           name: "Criterion A — Research Outputs Published",
           maxPoints: 100,
-          description: "Scholarly research papers, educational or technical articles, and other outputs published in books and in refereed, internationally indexed monographs, conference proceedings, and technical, scientific, or professional journals.",
+          description: "Scholarly research outputs published, translated into project/policy/product, or cited in indexed journals.",
           indicators: [
             {
               id: "kra2-a-book-sole",
-              name: "Sole author of a book",
+              name: "Sole author of an academic book",
               points: 100,
               maxPoints: 100,
               contribution: "sole",
-              evidence: ["Copy of the published research output showing the author, date published, and title"],
+              evidence: [
+                "Copy of the published academic book showing author, date, and title",
+                "Evidence of peer review and publication by a reputable academic or university press"
+              ],
               conditions: [
-                "A book is a printed non-periodical of at least 48 pages, exclusive of cover pages, published and made available to the public (UNESCO definition, as cited through RA 8047).",
-                "It must be peer-reviewed and published by an academic publisher locally or internationally.",
-                "Textbooks are classified under instructional materials, not under this indicator.",
-                "For a faculty evaluated for the first time, research publications are covered within the last five years. For a faculty rated previously, coverage is the evaluation period."
+                "A book is a printed non-periodical of at least 48 pages exclusive of covers (UNESCO / RA 8047).",
+                "Must present original research or scholarly work in an academic discipline.",
+                "Textbooks are credited under Instructional Materials, not here.",
+                "Institutional review prior to publication is required starting the next evaluation cycle."
               ]
             },
             {
               id: "kra2-a-book-co",
-              name: "Co-author of a book",
+              name: "Co-author of an academic book",
               points: 100,
               pointsLabel: "% contribution × 100",
               maxPoints: 100,
               contribution: "declared",
-              evidence: ["Copy of the published book showing the author, date, and title", "Certification from all authors of their respective contributions, using the prescribed template"],
-              conditions: ["Annex II sample: a book allocated 100 points, with declared contributions of 60% and 40%, yields 60 and 40 points."]
+              evidence: [
+                "Copy of the published academic book",
+                "Certificate of Contribution Form_Research Output (Annex D), signed by all co-authors and certified by the Research Director"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-a-chapter-sole",
+              name: "Sole author of an edited academic book chapter",
+              points: 35,
+              maxPoints: 35,
+              contribution: "sole",
+              evidence: [
+                "Copy of the published chapter showing author, date, and book title",
+                "Evidence of peer review"
+              ],
+              conditions: [
+                "Scholarly or scientific chapters in edited volumes published by a reputable academic press."
+              ]
+            },
+            {
+              id: "kra2-a-chapter-co",
+              name: "Co-author of an edited academic book chapter",
+              points: 35,
+              pointsLabel: "% contribution × 35",
+              maxPoints: 35,
+              contribution: "declared",
+              evidence: [
+                "Copy of the published chapter",
+                "Certificate of Contribution Form_Research Output (Annex D)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
             },
             {
               id: "kra2-a-journal-sole",
@@ -285,10 +488,12 @@ FL.rules = {
               points: 50,
               maxPoints: 50,
               contribution: "sole",
-              evidence: ["Copy of the published article showing the author, date, and journal title"],
+              evidence: [
+                "Copy of the published article showing author, date, and journal title"
+              ],
               conditions: [
-                "The article must be published in a journal listed in an international indexing body such as the ASEAN Citation Index, Scopus (Elsevier), or Web of Science (Clarivate Analytics).",
-                "A journal article written in Filipino that is not publishable in those indexed journals may be published in a peer-reviewed journal."
+                "Published in a journal indexed in Scopus, Web of Science, or ASEAN Citation Index (ACI accepted through its last issue in 2024).",
+                "Student co-authorship requires a governing-board policy allowing it."
               ]
             },
             {
@@ -298,99 +503,102 @@ FL.rules = {
               pointsLabel: "% contribution × 50",
               maxPoints: 50,
               contribution: "declared",
-              evidence: ["Copy of the published article showing the author, date, and journal title", "Certification from all authors of their respective contributions, using the prescribed template"],
-              conditions: ["Points received = 50 × declared contribution percentage."]
-            },
-            {
-              id: "kra2-a-chapter-sole",
-              name: "Sole author of a book chapter",
-              points: 35,
-              maxPoints: 35,
-              contribution: "sole",
-              evidence: ["Copy of the published chapter showing the author, date, and book title"],
-              conditions: ["Scholarly or scientific chapters in compendiums, edited volumes, or edited collections.", "The book must be peer-reviewed and published by an academic publisher locally or internationally."]
-            },
-            {
-              id: "kra2-a-chapter-co",
-              name: "Co-author of a book chapter",
-              points: 35,
-              pointsLabel: "% contribution × 35",
-              maxPoints: 35,
-              contribution: "declared",
-              evidence: ["Copy of the published chapter", "Author-contribution certification using the prescribed template"],
-              conditions: ["Annex II sample: a book chapter allocated 35 points, with declared contributions of 65% and 35%, yields 22.75 and 12.25 points."]
+              evidence: [
+                "Copy of the published article",
+                "Certificate of Contribution Form_Research Output (Annex D)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
             },
             {
               id: "kra2-a-monograph-sole",
-              name: "Sole author of a monograph",
+              name: "Sole author of an academic monograph",
               points: 100,
               maxPoints: 100,
               contribution: "sole",
-              evidence: ["Copy of the published monograph showing the author, date, and title"],
-              conditions: ["A monograph is a detailed written study of a single subject, usually a short book.", "It must be peer-reviewed or the equivalent, and refereed and internationally indexed where the criterion requires it."]
+              evidence: [
+                "Copy of the published monograph",
+                "Evidence of peer review"
+              ],
+              conditions: [
+                "Peer-reviewed academic monograph published by a reputable press."
+              ]
             },
             {
               id: "kra2-a-monograph-co",
-              name: "Co-author of a monograph",
+              name: "Co-author of an academic monograph",
               points: 100,
               pointsLabel: "% contribution × 100",
               maxPoints: 100,
               contribution: "declared",
-              evidence: ["Copy of the published monograph", "Author-contribution certification using the prescribed template"],
-              conditions: ["Points received = 100 × declared contribution percentage."]
-            },
-            {
-              id: "kra2-a-other",
-              name: "Other peer-reviewed scholarly output",
-              points: 10,
-              maxPoints: 10,
-              contribution: "sole",
-              evidence: ["Copy of the published output showing the author, date, and title"],
-              conditions: ["May include commissioned research, policy papers, maps, ethnographic or field notes, articles in an academic magazine, case studies, a full paper in conference proceedings, and translation of scholarly work."]
-            },
-            {
-              id: "kra2-a-translation-lead",
-              name: "Research translated into a project, policy, or product — Lead researcher",
-              points: 35,
-              maxPoints: 35,
-              contribution: "sole",
-              evidence: ["Executive summary of the research translated into a project, or evidence that the research was translated into a project, policy, or product"],
-              conditions: ["There must be evidence that the research was completed and that the project, policy, or product emanated from it."]
-            },
-            {
-              id: "kra2-a-translation-co",
-              name: "Research translated into a project, policy, or product — Contributor",
-              points: 35,
-              pointsLabel: "% contribution × 35",
-              maxPoints: 35,
-              contribution: "declared",
-              evidence: ["Executive summary or evidence of translation into a project, policy, or product", "Contribution certification where more than one faculty is a claimant"],
-              conditions: ["Points received = 35 × declared contribution percentage."]
-            },
-            {
-              id: "kra2-a-cite-local",
-              name: "Research publication cited — Local",
-              points: 5,
-              maxPoints: 40,
-              groupMax: { group: "kra2-a-cite-local", max: 40 },
-              contribution: "not-applicable",
-              evidence: ["Proof that the publication has been cited by other authors (for example, a citation-index database)"],
+              evidence: [
+                "Copy of the published monograph",
+                "Certificate of Contribution Form_Research Output (Annex D)"
+              ],
               conditions: [
-                "5 points per local citation, maximum 40 points.",
-                "The citing article must be published within the evaluation period.",
-                "The citing article must be published in a journal listed in the ASEAN Citation Index, Scopus, or Web of Science.",
-                "“Local” includes national, regional, municipal, city, and barangay unless otherwise specified."
+                "Points received = points allocated for the indicator × declared contribution percentage."
               ]
             },
             {
-              id: "kra2-a-cite-intl",
-              name: "Research publication cited — International",
+              id: "kra2-a-translation-sole",
+              name: "Research translated into a project, policy, or product — Sole / Lead",
+              points: 35,
+              maxPoints: 70,
+              contribution: "sole",
+              evidence: [
+                "Completed research output that served as basis",
+                "Evidence of presentation, publication, or official submission",
+                "Description of the project/policy/product and proof of approval, completion, or utilization"
+              ],
+              conditions: [
+                "Category maximum is 70 points.",
+                "There must be clear evidence that the research informed the project, policy, or product."
+              ],
+              groupMax: {
+                group: "kra2-a-translation",
+                max: 70
+              }
+            },
+            {
+              id: "kra2-a-translation-co",
+              name: "Research translated into a project, policy, or product — Co-contributor",
+              points: 35,
+              pointsLabel: "% contribution × 35",
+              maxPoints: 70,
+              contribution: "declared",
+              evidence: [
+                "Completed research output and translation evidence",
+                "Certificate of Contribution Form_Translated Research (Annex E)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ],
+              groupMax: {
+                group: "kra2-a-translation",
+                max: 70
+              }
+            },
+            {
+              id: "kra2-a-cite",
+              name: "Research publication cited",
               points: 10,
               maxPoints: 60,
-              groupMax: { group: "kra2-a-cite-intl", max: 60 },
               contribution: "not-applicable",
-              evidence: ["Proof that the publication has been cited by other authors (for example, a citation-index database)"],
-              conditions: ["10 points per international citation, maximum 60 points.", "The citing article must be published within the evaluation period in a journal listed in the ASEAN Citation Index, Scopus, or Web of Science."]
+              evidence: [
+                "Copy of the faculty’s cited article published in a Scopus-, WoS-, or ACI-indexed journal",
+                "Copy of the citing article also published in a Scopus-, WoS-, or ACI-indexed journal",
+                "Certification from the Research Director attesting indexing at the time of publication"
+              ],
+              conditions: [
+                "10 points per cited article, maximum 60 points.",
+                "Self-citations are not counted.",
+                "Both the cited and citing articles must be in Scopus, WoS, or ACI at the time of their publication."
+              ],
+              groupMax: {
+                group: "kra2-a-cite",
+                max: 60
+              }
             }
           ]
         },
@@ -398,43 +606,695 @@ FL.rules = {
           id: "kra2-b",
           name: "Criterion B — Inventions",
           maxPoints: 100,
-          description: "Patentable and non-patentable inventions, innovations, and creative work of educational, technical, scientific, or cultural value.",
+          description: "Patentable inventions, commercialized patented products, utility models, industrial designs, and non-patentable products.",
           indicators: [
-            { id: "kra2-b-patent-a", name: "Invention patent — Acceptance (sole inventor)", points: 10, maxPoints: 10, contribution: "sole", evidence: ["Certification from IPOPHL for acceptance of the application"], conditions: ["Acceptance means the application passed the formality examination.", "Each stage of an invention-patent application is given points."] },
-            { id: "kra2-b-patent-a-co", name: "Invention patent — Acceptance (co-inventor)", points: 10, pointsLabel: "% contribution × 10", maxPoints: 10, contribution: "declared", evidence: ["IPOPHL acceptance certification", "Certification from all inventors of their respective contributions, using the prescribed template"], conditions: ["Annex II sample: acceptance allocated 10 points, with declared contributions of 60% and 40%, yields 6 and 4 points."] },
-            { id: "kra2-b-patent-p", name: "Invention patent — Publication (sole inventor)", points: 20, maxPoints: 20, contribution: "sole", evidence: ["Notice of publication from IPOPHL"], conditions: ["Publication means the application has been published in the IPOPHL eGazette for opposition."] },
-            { id: "kra2-b-patent-p-co", name: "Invention patent — Publication (co-inventor)", points: 20, pointsLabel: "% contribution × 20", maxPoints: 20, contribution: "declared", evidence: ["IPOPHL notice of publication", "Inventor-contribution certification"], conditions: ["Points received = 20 × declared contribution percentage."] },
-            { id: "kra2-b-patent-g", name: "Invention patent — Grant (sole inventor)", points: 80, maxPoints: 80, contribution: "sole", evidence: ["Patent certificate issued by IPOPHL"], conditions: ["Grant means the patent application has been granted."] },
-            { id: "kra2-b-patent-g-co", name: "Invention patent — Grant (co-inventor)", points: 80, pointsLabel: "% contribution × 80", maxPoints: 80, contribution: "declared", evidence: ["IPOPHL patent certificate", "Inventor-contribution certification"], conditions: ["Annex II sample: a granted invention patent allocated 80 points, with declared contributions of 70% and 30%, yields 56 and 24 points."] },
-            { id: "kra2-b-um", name: "Utility model — Grant (sole inventor)", points: 10, maxPoints: 10, contribution: "sole", evidence: ["Utility model certificate issued by IPOPHL"], conditions: ["For a utility model, only the grant earns points."] },
-            { id: "kra2-b-um-co", name: "Utility model — Grant (co-inventor)", points: 10, pointsLabel: "% contribution × 10", maxPoints: 10, contribution: "declared", evidence: ["IPOPHL utility model certificate", "Inventor-contribution certification"], conditions: ["Annex II sample: a utility model allocated 10 points, with declared contributions of 50% and 50%, yields 5 and 5 points.", "Only the grant earns points."] },
-            { id: "kra2-b-id", name: "Industrial design — Grant (sole inventor)", points: 5, maxPoints: 5, contribution: "sole", evidence: ["Industrial design certificate issued by IPOPHL"], conditions: ["For an industrial design, only the grant earns points."] },
-            { id: "kra2-b-id-co", name: "Industrial design — Grant (co-inventor)", points: 5, pointsLabel: "% contribution × 5", maxPoints: 5, contribution: "declared", evidence: ["IPOPHL industrial design certificate", "Inventor-contribution certification"], conditions: ["Points received = 5 × declared contribution percentage. Only the grant earns points."] },
-            { id: "kra2-b-comm-local", name: "Commercialized patented product — Local", points: 5, maxPoints: 20, groupMax: { group: "kra2-b-comm-local", max: 20 }, contribution: "not-applicable", evidence: ["Licensing agreement, license to operate, FDA certificate of product registration, or a similar permit from the relevant regulatory agency"], conditions: ["5 points, maximum 20.", "Local means commercialized in any area within the Philippines."] },
-            { id: "kra2-b-comm-intl", name: "Commercialized patented product — International", points: 10, maxPoints: 30, groupMax: { group: "kra2-b-comm-intl", max: 30 }, contribution: "not-applicable", evidence: ["Licensing agreement or equivalent regulatory permit for commercialization outside the Philippines"], conditions: ["10 points, maximum 30.", "International means commercialized in at least one country outside the Philippines."] },
-            { id: "kra2-b-sw-new", name: "New copyrighted and utilized software — Sole developer", points: 10, maxPoints: 10, contribution: "sole", evidence: ["Copyright registration certificate from IPOPHL", "Certificate of utilization from the end user"], conditions: ["The software must be both copyrighted and utilized."] },
-            { id: "kra2-b-sw-new-co", name: "New copyrighted and utilized software — Co-developer", points: 10, pointsLabel: "% contribution × 10", maxPoints: 10, contribution: "declared", evidence: ["IPOPHL copyright registration", "Certificate of utilization", "Certification from all developers of their contributions"], conditions: ["Annex II sample: new software allocated 10 points, with declared contributions of 65% and 35%, yields 6.5 and 3.5 points."] },
-            { id: "kra2-b-sw-upd", name: "Updated copyrighted and utilized software — Sole developer", points: 4, maxPoints: 4, contribution: "sole", evidence: ["Copyright registration certificate from IPOPHL", "Certificate of utilization from the end user"], conditions: ["An updated product must have a new functionality that was not in the previous version."] },
-            { id: "kra2-b-sw-upd-co", name: "Updated copyrighted and utilized software — Co-developer", points: 2, maxPoints: 2, contribution: "fixed", evidence: ["Copyright registration certificate from IPOPHL", "Certificate of utilization", "Developer-contribution certification"], conditions: ["Annex I lists 2 points for this co-developer row.", "The updated product must add functionality that was not in the previous version."] },
-            { id: "kra2-b-variety", name: "New plant variety, animal breed, or microbial strain — Sole developer", points: 10, maxPoints: 10, contribution: "sole", evidence: ["Registration of the new variety, breed, or strain from the authorized agency", "Certification from farm owners or breeders that it has been propagated"], conditions: ["The discovery must be registered with the appropriate government or non-government authority and must be propagated or reproduced."] },
-            { id: "kra2-b-variety-co", name: "New plant variety, animal breed, or microbial strain — Co-developer", points: 10, pointsLabel: "% contribution × 10", maxPoints: 10, contribution: "declared", evidence: ["Registration from the authorized agency", "Certification of propagation", "Certification from all developers of their contributions"], conditions: ["Points received = 10 × declared contribution percentage."] }
+            {
+              id: "kra2-b-patent-a-sole",
+              name: "Invention patent — Acceptance (sole inventor)",
+              points: 10,
+              maxPoints: 10,
+              contribution: "sole",
+              evidence: [
+                "Photo of the invention",
+                "Special Order signed by the President",
+                "Formality Examination Report with no noted defects from IPOPHL"
+              ],
+              conditions: [
+                "Only the highest patent stage attained within the evaluation period is credited."
+              ]
+            },
+            {
+              id: "kra2-b-patent-a-co",
+              name: "Invention patent — Acceptance (co-inventor)",
+              points: 10,
+              pointsLabel: "% contribution × 10",
+              maxPoints: 10,
+              contribution: "declared",
+              evidence: [
+                "IPOPHL acceptance documents",
+                "Certificate of Contribution Form_Intellectual Property (Annex F)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-b-patent-p-sole",
+              name: "Invention patent — Publication (sole inventor)",
+              points: 20,
+              maxPoints: 20,
+              contribution: "sole",
+              evidence: [
+                "Photo of the invention",
+                "Special Order signed by the President",
+                "Substantive Examination Report / notice of publication from IPOPHL"
+              ],
+              conditions: [
+                "Only the highest patent stage attained within the evaluation period is credited."
+              ]
+            },
+            {
+              id: "kra2-b-patent-p-co",
+              name: "Invention patent — Publication (co-inventor)",
+              points: 20,
+              pointsLabel: "% contribution × 20",
+              maxPoints: 20,
+              contribution: "declared",
+              evidence: [
+                "IPOPHL publication documents",
+                "Certificate of Contribution Form_Intellectual Property (Annex F)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-b-patent-g-sole",
+              name: "Invention patent — Grant (sole inventor)",
+              points: 80,
+              maxPoints: 80,
+              contribution: "sole",
+              evidence: [
+                "Photo of the invention",
+                "Special Order signed by the President",
+                "Patent Certificate issued by IPOPHL"
+              ],
+              conditions: [
+                "Only the highest patent stage attained within the evaluation period is credited."
+              ]
+            },
+            {
+              id: "kra2-b-patent-g-co",
+              name: "Invention patent — Grant (co-inventor)",
+              points: 80,
+              pointsLabel: "% contribution × 80",
+              maxPoints: 80,
+              contribution: "declared",
+              evidence: [
+                "IPOPHL patent certificate",
+                "Certificate of Contribution Form_Intellectual Property (Annex F)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-b-comm-local",
+              name: "Commercialized patented product — Local",
+              points: 5,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Photo of the patented product",
+                "Invention Patent Certificate",
+                "CPR or equivalent / licensing agreement",
+                "Proof of commercialization",
+                "Certification from Research Director / ITSO"
+              ],
+              conditions: [
+                "5 points, maximum 20.",
+                "Local means commercialized within the Philippines.",
+                "First commercialization must fall within the evaluation period."
+              ],
+              groupMax: {
+                group: "kra2-b-comm-local",
+                max: 20
+              }
+            },
+            {
+              id: "kra2-b-comm-intl",
+              name: "Commercialized patented product — International",
+              points: 10,
+              maxPoints: 30,
+              contribution: "not-applicable",
+              evidence: [
+                "Photo of the patented product",
+                "Invention Patent Certificate",
+                "Licensing or technology-transfer agreement",
+                "Proof of commercialization outside the Philippines",
+                "Certification from Research Director / ITSO"
+              ],
+              conditions: [
+                "10 points, maximum 30.",
+                "International means commercialized in at least one country outside the Philippines."
+              ],
+              groupMax: {
+                group: "kra2-b-comm-intl",
+                max: 30
+              }
+            },
+            {
+              id: "kra2-b-um-sole",
+              name: "Utility model — Registration (sole inventor)",
+              points: 10,
+              maxPoints: 10,
+              contribution: "sole",
+              evidence: [
+                "Photo of the utility model",
+                "Special Order signed by the President",
+                "UM Certificate of Registration from IPOPHL"
+              ],
+              conditions: [
+                "For this cycle, points are awarded for UMs registered within the evaluation period; subsequent cycles use implementation as the basis."
+              ]
+            },
+            {
+              id: "kra2-b-um-co",
+              name: "Utility model — Registration (co-inventor)",
+              points: 10,
+              pointsLabel: "% contribution × 10",
+              maxPoints: 10,
+              contribution: "declared",
+              evidence: [
+                "UM certificate",
+                "Certificate of Contribution Form_Intellectual Property (Annex F)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-b-id-sole",
+              name: "Industrial design — Registration (sole inventor)",
+              points: 5,
+              maxPoints: 5,
+              contribution: "sole",
+              evidence: [
+                "Photo of the industrial design",
+                "Special Order signed by the President",
+                "ID Certificate of Registration from IPOPHL"
+              ],
+              conditions: [
+                "For this cycle, points are awarded for IDs registered within the evaluation period; subsequent cycles use implementation as the basis."
+              ]
+            },
+            {
+              id: "kra2-b-id-co",
+              name: "Industrial design — Registration (co-inventor)",
+              points: 5,
+              pointsLabel: "% contribution × 5",
+              maxPoints: 5,
+              contribution: "declared",
+              evidence: [
+                "ID certificate",
+                "Certificate of Contribution Form_Intellectual Property (Annex F)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-b-sw-new-sole",
+              name: "New copyrighted and utilized software — Sole developer",
+              points: 10,
+              maxPoints: 10,
+              contribution: "sole",
+              evidence: [
+                "Special Order signed by the President",
+                "Project summary",
+                "User manual / design / source documentation",
+                "Copyright Certificate from IPOPHL",
+                "End-user utilization certification"
+              ],
+              conditions: [
+                "The software must be both copyrighted and utilized."
+              ]
+            },
+            {
+              id: "kra2-b-sw-new-co",
+              name: "New copyrighted and utilized software — Co-developer",
+              points: 10,
+              pointsLabel: "% contribution × 10",
+              maxPoints: 10,
+              contribution: "declared",
+              evidence: [
+                "Same software evidence",
+                "Certificate of Contribution Form_Software (Annex G)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-b-sw-upd-sole",
+              name: "Updated copyrighted and utilized software — Sole developer",
+              points: 4,
+              maxPoints: 4,
+              contribution: "sole",
+              evidence: [
+                "Special Order signed by the President",
+                "Project summary",
+                "Copyright Certificate from IPOPHL",
+                "End-user utilization certification",
+                "Description of substantial new functionalities not in the previous version"
+              ],
+              conditions: [
+                "Updated products must add substantial new functionalities, features, or modules."
+              ]
+            },
+            {
+              id: "kra2-b-sw-upd-co",
+              name: "Updated copyrighted and utilized software — Co-developer",
+              points: 4,
+              pointsLabel: "% contribution × 4",
+              maxPoints: 4,
+              contribution: "declared",
+              evidence: [
+                "Same updated-software evidence",
+                "Certificate of Contribution Form_Software (Annex G)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-b-variety-sole",
+              name: "New plant variety, animal breed, or microbial strain — Sole developer",
+              points: 10,
+              maxPoints: 10,
+              contribution: "sole",
+              evidence: [
+                "Photo",
+                "Registration / deposit certificate from the authorized agency",
+                "Certification of propagation, breeding, or culture validation"
+              ],
+              conditions: [
+                "Must be registered with the appropriate authority and propagated or reproduced."
+              ]
+            },
+            {
+              id: "kra2-b-variety-co",
+              name: "New plant variety, animal breed, or microbial strain — Co-developer",
+              points: 10,
+              pointsLabel: "% contribution × 10",
+              maxPoints: 10,
+              contribution: "declared",
+              evidence: [
+                "Registration / deposit evidence",
+                "Certificate of Contribution Form_New Cultivars, Breeds and Strains (Annex H)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            }
           ]
         },
         {
           id: "kra2-c",
           name: "Criterion C — Creative Works",
           maxPoints: 100,
-          description: "Creative work created, performed, presented, exhibited, or published, including literature, artwork, music, dance, drama, productions, architecture, and games and apps.",
+          description: "Creative works produced, performed, presented, exhibited, or published in the performing arts, visual arts, film, and literary arts.",
           indicators: [
-            { id: "kra2-c-new-work", name: "New creative performing art work (music, dance, and theatre)", points: 20, maxPoints: 20, contribution: "sole", evidence: ["Copyright certificate of the new creative performing art"], conditions: ["The work is original, has undergone peer review, and is copyrighted.", "Creative work outside the faculty member’s discipline may be considered when the SUC supports it and it brings recognition to the institution."] },
-            { id: "kra2-c-perform-own", name: "Performance of the faculty member’s own work", points: 10, maxPoints: 10, contribution: "sole", evidence: ["Invitation from a reputable organizer, the program, and pictures of the performance"], conditions: ["The performance must be in a venue organized by a reputable organization.", "Only the first performance is counted."] },
-            { id: "kra2-c-perform-other", name: "Performance of the work of another", points: 10, maxPoints: 10, contribution: "sole", evidence: ["Invitation from a reputable organizer, the program, and pictures of the performance"], conditions: ["Only the first performance is counted.", "The performance must be in a venue organized by a reputable organization."] },
-            { id: "kra2-c-exhibit", name: "Exhibition (visual arts, architecture, film, multimedia)", points: 20, maxPoints: 20, contribution: "sole", evidence: ["Letter of acceptance or letter of invitation for the exhibition"], conditions: ["The exhibition must be in a formal venue.", "Only the first exhibition is counted."] },
-            { id: "kra2-c-design", name: "Juried or peer-reviewed design (architecture, engineering, industrial design)", points: 20, maxPoints: 20, contribution: "sole", evidence: ["Evidence that the design was juried or peer-reviewed"], conditions: ["Juried designs are presented to a panel, such as an architectural design competition.", "Peer-reviewed designs are submitted to an independent designer with expertise for evaluation."] },
-            { id: "kra2-c-novel", name: "Literary publication — Novel", points: 20, maxPoints: 20, contribution: "sole", evidence: ["Copy of the published literary work"], conditions: ["Published in a book, anthology, or literary magazine by a reputable press or publisher."] },
-            { id: "kra2-c-story", name: "Literary publication — Short story", points: 10, maxPoints: 10, contribution: "sole", evidence: ["Copy of the published literary work"], conditions: ["Published by a reputable press or publisher."] },
-            { id: "kra2-c-essay", name: "Literary publication — Essay", points: 10, maxPoints: 10, contribution: "sole", evidence: ["Copy of the published literary work"], conditions: ["Published by a reputable press or publisher."] },
-            { id: "kra2-c-poetry", name: "Literary publication — Poetry", points: 10, maxPoints: 10, contribution: "sole", evidence: ["Copy of the published literary work"], conditions: ["Published by a reputable press or publisher."] }
+            {
+              id: "kra2-c-music-comp-sole",
+              name: "Musical composition",
+              points: 20,
+              maxPoints: 20,
+              contribution: "sole",
+              evidence: [
+                "Published original musical score and/or copyright registration",
+                "Proof of invitation/acceptance",
+                "Proof of first performance"
+              ],
+              conditions: [
+                "Only the first performance earns points."
+              ]
+            },
+            {
+              id: "kra2-c-music-comp-co",
+              name: "Musical composition — Co-composer",
+              points: 20,
+              pointsLabel: "% contribution × 20",
+              maxPoints: 20,
+              contribution: "declared",
+              evidence: [
+                "Same composition evidence",
+                "Certificate of Contribution Form_Creative Works (Annex I)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-c-music-arr-sole",
+              name: "Musical arrangement",
+              points: 20,
+              maxPoints: 20,
+              contribution: "sole",
+              evidence: [
+                "Published arranged or original arrangement score",
+                "Proof of invitation/acceptance",
+                "Proof of first performance",
+                "Dean/Program Director certification of role where applicable"
+              ],
+              conditions: [
+                "Covers adaptation and original arrangement."
+              ]
+            },
+            {
+              id: "kra2-c-music-arr-co",
+              name: "Musical arrangement — Co-arranger",
+              points: 20,
+              pointsLabel: "% contribution × 20",
+              maxPoints: 20,
+              contribution: "declared",
+              evidence: [
+                "Same arrangement evidence",
+                "Certificate of Contribution Form_Creative Works (Annex I)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-c-music-perf",
+              name: "Musical performance (vocal or instrumental)",
+              points: 10,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Proof of invitation/acceptance",
+                "Proof of performance",
+                "Organizer/conductor/director certification"
+              ],
+              conditions: [
+                "Only the first performance of the work in the evaluation context is credited as applicable under Section 27."
+              ]
+            },
+            {
+              id: "kra2-c-conducting",
+              name: "Conducting",
+              points: 10,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Proof of invitation/acceptance as conductor",
+                "Proof of performance",
+                "Organizer/music director certification"
+              ],
+              conditions: [
+                "Academic recitals, concerts, musical theatre, festivals, competitions, or professional/public venues."
+              ]
+            },
+            {
+              id: "kra2-c-music-prod-sole",
+              name: "Music production",
+              points: 20,
+              maxPoints: 20,
+              contribution: "sole",
+              evidence: [
+                "Produced music track with clear producer credit",
+                "Copyright registration",
+                "Published release details",
+                "Dean certification of role and scope"
+              ],
+              conditions: [
+                "For original work produced."
+              ]
+            },
+            {
+              id: "kra2-c-music-prod-co",
+              name: "Music production — Co-producer",
+              points: 20,
+              pointsLabel: "% contribution × 20",
+              maxPoints: 20,
+              contribution: "declared",
+              evidence: [
+                "Same production evidence",
+                "Certificate of Contribution Form_Creative Works (Annex I)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-c-choreo-sole",
+              name: "Original choreography",
+              points: 20,
+              maxPoints: 20,
+              contribution: "sole",
+              evidence: [
+                "Choreographic notations or written description",
+                "Proof of invitation/acceptance",
+                "Proof of first performance",
+                "Organizer certification"
+              ],
+              conditions: [
+                "Only the first performance earns points."
+              ]
+            },
+            {
+              id: "kra2-c-choreo-co",
+              name: "Original choreography — Co-choreographer",
+              points: 20,
+              pointsLabel: "% contribution × 20",
+              maxPoints: 20,
+              contribution: "declared",
+              evidence: [
+                "Same choreography evidence",
+                "Certificate of Contribution Form_Creative Works (Annex I)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-c-dance-perf",
+              name: "Dance performance",
+              points: 10,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Proof of dance performance",
+                "Certification from choreographer, artistic director, or department head"
+              ],
+              conditions: [
+                "Academic events, recitals, concerts, festivals, competitions, productions, or professional/public venues."
+              ]
+            },
+            {
+              id: "kra2-c-playwright-sole",
+              name: "Playwright",
+              points: 20,
+              maxPoints: 20,
+              contribution: "sole",
+              evidence: [
+                "Full script",
+                "Copyright registration",
+                "Proof of invitation/acceptance",
+                "Proof of production",
+                "Director certification"
+              ],
+              conditions: [
+                "Only the first production is credited."
+              ]
+            },
+            {
+              id: "kra2-c-playwright-co",
+              name: "Playwright — Co-author",
+              points: 20,
+              pointsLabel: "% contribution × 20",
+              maxPoints: 20,
+              contribution: "declared",
+              evidence: [
+                "Same playwright evidence",
+                "Certificate of Contribution Form_Creative Works (Annex I)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-c-directing",
+              name: "Theatrical directing",
+              points: 20,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Proof of invitation/acceptance as director",
+                "Event program or flyer",
+                "Video/photo documentation",
+                "Production manager certification"
+              ],
+              conditions: [
+                "Staged theatrical production."
+              ]
+            },
+            {
+              id: "kra2-c-acting",
+              name: "Acting",
+              points: 20,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Proof of invitation/acceptance as actor",
+                "Program/playbill/cast list",
+                "Video/photo documentation",
+                "Director or production manager certification"
+              ],
+              conditions: [
+                "Staged theatrical production."
+              ]
+            },
+            {
+              id: "kra2-c-prod-design",
+              name: "Production design",
+              points: 20,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Proof of invitation/acceptance as designer",
+                "Design portfolio",
+                "Photo/video of realized design",
+                "Program credits",
+                "Director or production manager certification"
+              ],
+              conditions: [
+                "Set, costume, lighting, or props design."
+              ]
+            },
+            {
+              id: "kra2-c-visual",
+              name: "Visual arts exhibition (painting, drawing, mixed media, sculpture, photography, digital art)",
+              points: 20,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Photograph of the exhibited work with title, description, date, and venue",
+                "Proof of invitation/acceptance",
+                "Exhibition catalog/brochure/program",
+                "Gallery information",
+                "Curator or gallery director certification"
+              ],
+              conditions: [
+                "Exhibition in a formal venue.",
+                "Only the first exhibition of the work earns points."
+              ]
+            },
+            {
+              id: "kra2-c-arch-design",
+              name: "Architectural, engineering, or interior design (exhibition or juried)",
+              points: 20,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Design proposal or project portfolio",
+                "Proof of invitation/acceptance or peer/jury evaluation",
+                "Exhibition or competition documentation",
+                "Authorship documentation",
+                "Information on the gallery, event, or organizing body"
+              ],
+              conditions: [
+                "Covers exhibition and juried/peer-reviewed tracks under Section 27."
+              ]
+            },
+            {
+              id: "kra2-c-film",
+              name: "Film (short, feature, documentary, experimental, animated)",
+              points: 20,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Copy or working link to the film",
+                "Proof of invitation/acceptance or festival entry",
+                "Festival program or screening announcement with role credit",
+                "Festival organizer certification"
+              ],
+              conditions: [
+                "Faculty role may include director, producer, screenwriter, or cinematographer as credited."
+              ]
+            },
+            {
+              id: "kra2-c-novel-sole",
+              name: "Literary publication — Novel",
+              points: 20,
+              maxPoints: 20,
+              contribution: "sole",
+              evidence: [
+                "Copy of the published and copyrighted novel",
+                "Publisher guidelines and evidence of editorial review",
+                "Proof of publisher credibility"
+              ],
+              conditions: [
+                "Published by a reputable press or publisher."
+              ]
+            },
+            {
+              id: "kra2-c-novel-co",
+              name: "Literary publication — Novel (co-author)",
+              points: 20,
+              pointsLabel: "% contribution × 20",
+              maxPoints: 20,
+              contribution: "declared",
+              evidence: [
+                "Same novel evidence",
+                "Certificate of Contribution Form_Creative Works (Annex I)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-c-story-sole",
+              name: "Literary publication — Short story",
+              points: 10,
+              maxPoints: 10,
+              contribution: "sole",
+              evidence: [
+                "Copy of the anthology, literary magazine, or journal issue",
+                "Publisher guidelines and evidence of editorial review",
+                "Proof of publisher credibility"
+              ],
+              conditions: [
+                "Published in an anthology, literary journal, or literary magazine."
+              ]
+            },
+            {
+              id: "kra2-c-story-co",
+              name: "Literary publication — Short story (co-author)",
+              points: 10,
+              pointsLabel: "% contribution × 10",
+              maxPoints: 10,
+              contribution: "declared",
+              evidence: [
+                "Same short-story evidence",
+                "Certificate of Contribution Form_Creative Works (Annex I)"
+              ],
+              conditions: [
+                "Points received = points allocated for the indicator × declared contribution percentage."
+              ]
+            },
+            {
+              id: "kra2-c-poetry",
+              name: "Literary publication — Poetry",
+              points: 2,
+              maxPoints: 2,
+              contribution: "not-applicable",
+              evidence: [
+                "Copy of the anthology, literary magazine, or journal issue",
+                "Publisher guidelines and evidence of editorial review",
+                "Proof of publisher credibility"
+              ],
+              conditions: [
+                "2 points per published poem collection/entry under Annex A.",
+                "Published in an anthology, literary journal, or literary magazine."
+              ]
+            },
+            {
+              id: "kra2-c-essay",
+              name: "Literary publication — Literary essay",
+              points: 2,
+              maxPoints: 2,
+              contribution: "not-applicable",
+              evidence: [
+                "Copy of the anthology, literary magazine, or journal issue",
+                "Publisher guidelines and evidence of editorial review",
+                "Proof of publisher credibility"
+              ],
+              conditions: [
+                "2 points per published literary essay under Annex A."
+              ]
+            }
           ]
         }
       ]
@@ -445,61 +1305,429 @@ FL.rules = {
       name: "Extension Services",
       maxPoints: 100,
       bonusMax: 20,
-      summary: "A faculty may earn 100 points from Criteria A (30), B (50), and C (20). Criterion D may add up to 20 bonus points on top of that total.",
+      summary: "A faculty may earn 100 points from Criteria A (30), B (50), and C (20). Criterion D may add up to 20 bonus points; the final KRA total still cannot exceed 100.",
       criteria: [
         {
           id: "kra3-a",
           name: "Criterion A — Service to the Institution",
           maxPoints: 30,
-          description: "Successful partnerships and contribution to income generation and external resources.",
+          description: "Successful linkages, networking, and partnerships, and contribution to income generation.",
           indicators: [
-            { id: "kra3-a-linkage", name: "Successful linkage, networking, or partnership activity", points: 5, maxPoints: 5, contribution: "not-applicable", evidence: ["Copy of the MOA", "Certification from the President that the partnership was initiated or implemented successfully by the faculty", "Implementation report or activity terminal report"], conditions: ["The partnership must be formalized through a duly signed and notarized Memorandum of Agreement.", "There must be evidence of implementation and of benefits derived from the partnership."] },
-            { id: "kra3-a-income-6", name: "Income generation for the 3-year period — Below 6 million", points: 6, maxPoints: 6, contribution: "not-applicable", evidence: ["Financial reports showing the income generated", "Certification from the President acknowledging the faculty’s contribution to income generation"], conditions: ["Income may come from commercialization, grants obtained through the faculty’s project proposals, or projects with industry.", "The total is based on gross income."] },
-            { id: "kra3-a-income-12", name: "Income generation for the 3-year period — Above 6 million to 12 million", points: 12, maxPoints: 12, contribution: "not-applicable", evidence: ["Financial reports showing the income generated", "Certification from the President acknowledging the faculty’s contribution"], conditions: ["The total is based on gross income over the three-year period."] },
-            { id: "kra3-a-income-over", name: "Income generation for the 3-year period — Above 12 million", points: 18, maxPoints: 18, contribution: "not-applicable", evidence: ["Financial reports showing the income generated", "Certification from the President acknowledging the faculty’s contribution"], conditions: ["The total is based on gross income over the three-year period."] }
+            {
+              id: "kra3-a-linkage",
+              name: "Successful linkage, networking, or partnership activity",
+              points: 5,
+              maxPoints: 5,
+              contribution: "not-applicable",
+              evidence: [
+                "Board/President/Chancellor approval authorizing the partnership",
+                "Notarized MOA/MOU (or project proposal if activities are not in the MOA)",
+                "Implementation or terminal report acknowledging successful implementation",
+                "Certification from the President or concerned Vice President that the partnership was initiated through the faculty’s initiative"
+              ],
+              conditions: [
+                "Partnership must be formalized and successfully implemented."
+              ]
+            },
+            {
+              id: "kra3-a-income-lead-100k",
+              name: "Income generation — Lead — ₱100,000 and below",
+              points: 2,
+              maxPoints: 2,
+              contribution: "not-applicable",
+              evidence: [
+                "Financial reports / Sub-ARO or equivalent",
+                "Finance Division certification of contribution"
+              ],
+              conditions: [
+                "Lead receives full points for the income band.",
+                "Income may come from commercialization, external grants through project proposals, or industry-based projects."
+              ]
+            },
+            {
+              id: "kra3-a-income-lead-500k",
+              name: "Income generation — Lead — ₱100,001 to ₱500,000",
+              points: 4,
+              maxPoints: 4,
+              contribution: "not-applicable",
+              evidence: [
+                "Financial reports / Sub-ARO or equivalent",
+                "Finance Division certification of contribution"
+              ],
+              conditions: [
+                "Lead receives full points for the income band."
+              ]
+            },
+            {
+              id: "kra3-a-income-lead-6m",
+              name: "Income generation — Lead — ₱500,001 to ₱6,000,000",
+              points: 6,
+              maxPoints: 6,
+              contribution: "not-applicable",
+              evidence: [
+                "Financial reports / Sub-ARO or equivalent",
+                "Finance Division certification of contribution"
+              ],
+              conditions: [
+                "Lead receives full points for the income band."
+              ]
+            },
+            {
+              id: "kra3-a-income-lead-12m",
+              name: "Income generation — Lead — ₱6,000,001 to ₱12,000,000",
+              points: 12,
+              maxPoints: 12,
+              contribution: "not-applicable",
+              evidence: [
+                "Financial reports / Sub-ARO or equivalent",
+                "Finance Division certification of contribution"
+              ],
+              conditions: [
+                "Lead receives full points for the income band."
+              ]
+            },
+            {
+              id: "kra3-a-income-lead-over",
+              name: "Income generation — Lead — Above ₱12,000,000",
+              points: 18,
+              maxPoints: 18,
+              contribution: "not-applicable",
+              evidence: [
+                "Financial reports / Sub-ARO or equivalent",
+                "Finance Division certification of contribution"
+              ],
+              conditions: [
+                "Lead receives full points for the income band."
+              ]
+            },
+            {
+              id: "kra3-a-income-co-100k",
+              name: "Income generation — Contributor — ₱100,000 and below",
+              points: 1,
+              maxPoints: 1,
+              contribution: "not-applicable",
+              evidence: [
+                "Financial reports / Sub-ARO or equivalent",
+                "Finance Division certification of contribution"
+              ],
+              conditions: [
+                "Co-contributors each receive half of the Lead points for the same income band."
+              ]
+            },
+            {
+              id: "kra3-a-income-co-500k",
+              name: "Income generation — Contributor — ₱100,001 to ₱500,000",
+              points: 2,
+              maxPoints: 2,
+              contribution: "not-applicable",
+              evidence: [
+                "Financial reports / Sub-ARO or equivalent",
+                "Finance Division certification of contribution"
+              ],
+              conditions: [
+                "Co-contributors each receive half of the Lead points for the same income band."
+              ]
+            },
+            {
+              id: "kra3-a-income-co-6m",
+              name: "Income generation — Contributor — ₱500,001 to ₱6,000,000",
+              points: 3,
+              maxPoints: 3,
+              contribution: "not-applicable",
+              evidence: [
+                "Financial reports / Sub-ARO or equivalent",
+                "Finance Division certification of contribution"
+              ],
+              conditions: [
+                "Co-contributors each receive half of the Lead points for the same income band."
+              ]
+            },
+            {
+              id: "kra3-a-income-co-12m",
+              name: "Income generation — Contributor — ₱6,000,001 to ₱12,000,000",
+              points: 6,
+              maxPoints: 6,
+              contribution: "not-applicable",
+              evidence: [
+                "Financial reports / Sub-ARO or equivalent",
+                "Finance Division certification of contribution"
+              ],
+              conditions: [
+                "Co-contributors each receive half of the Lead points for the same income band."
+              ]
+            },
+            {
+              id: "kra3-a-income-co-over",
+              name: "Income generation — Contributor — Above ₱12,000,000",
+              points: 9,
+              maxPoints: 9,
+              contribution: "not-applicable",
+              evidence: [
+                "Financial reports / Sub-ARO or equivalent",
+                "Finance Division certification of contribution"
+              ],
+              conditions: [
+                "Co-contributors each receive half of the Lead points for the same income band."
+              ]
+            }
           ]
         },
         {
           id: "kra3-b",
           name: "Criterion B — Service to the Community",
           maxPoints: 50,
-          description: "Technical, professional, or expert services to the academic, professional, or geographic community, and institutional social responsibility.",
+          description: "Professional and expertise-based services, media services, and institutional social responsibility / extension projects.",
           indicators: [
-            { id: "kra3-b-qa-local", name: "Accreditation, evaluation, or assessment — Local", points: 8, maxPoints: 8, contribution: "not-applicable", evidence: ["Appointment from the organization or agency", "Proof of engagement, such as a certificate of participation"], conditions: ["Points are earned per agency or organization engaged, not per deployment.", "Local agencies include CHED, DTI-PQA, AACCUP, PAASCU, PACUCOA, ACSCU-ACI, and ALCUCOA."] },
-            { id: "kra3-b-qa-intl", name: "Accreditation, evaluation, or assessment — International", points: 10, maxPoints: 10, contribution: "not-applicable", evidence: ["Appointment from the organization or agency", "Proof of engagement"], conditions: ["International bodies include AQAN, AUN, APQN, PTC-ACBET, and PICAB.", "Points are earned per organization, not per deployment."] },
-            { id: "kra3-b-judge-research", name: "Judge or examiner — Research awards", points: 2, maxPoints: 2, contribution: "not-applicable", evidence: ["Proof of engagement, such as an official invitation or certificate of appreciation"], conditions: ["Points are earned for every engagement during the cycle.", "The award must be sponsored by a recognized agency or organization."] },
-            { id: "kra3-b-judge-academic", name: "Judge or examiner — Academic competitions", points: 1, maxPoints: 1, contribution: "not-applicable", evidence: ["Proof of engagement, such as an official invitation or certificate of appreciation"], conditions: ["The competition must be sponsored by a recognized agency or organization."] },
-            { id: "kra3-b-consult-local", name: "Short-term consultant or expert — Local", points: 8, maxPoints: 8, contribution: "not-applicable", evidence: ["Contract of service or its equivalent", "Proof of engagement"], conditions: ["Includes service as editor, peer reviewer, statistician, proposal evaluator, adjunct faculty, or technical expert of a government agency.", "Points are earned for every engagement during the cycle."] },
-            { id: "kra3-b-consult-intl", name: "Short-term consultant or expert — International", points: 10, maxPoints: 10, contribution: "not-applicable", evidence: ["Contract of service or its equivalent", "Proof of engagement"], conditions: ["The activity is educational, technological, professional, scientific, or cultural, and is sponsored by a private organization or government."] },
-            { id: "kra3-b-column-occasional", name: "Writer of an occasional newspaper column", points: 2, maxPoints: 10, groupMax: { group: "kra3-b-column-occasional", max: 10 }, contribution: "not-applicable", evidence: ["Copy of the newspaper article"], conditions: ["2 points per published column article, maximum 10.", "Print or online media."] },
-            { id: "kra3-b-column-regular", name: "Writer of a regular newspaper column", points: 10, maxPoints: 10, contribution: "not-applicable", evidence: ["Copy of the compiled articles"], conditions: ["Points are earned per regular column in a newspaper or online media."] },
-            { id: "kra3-b-host", name: "Host of a television or radio program", points: 10, maxPoints: 10, contribution: "not-applicable", evidence: ["Contract, invitation, or a similar document"], conditions: ["Points are earned per regular program on television, radio, or online media."] },
-            { id: "kra3-b-guest", name: "Guesting as a technical expert", points: 1, maxPoints: 10, groupMax: { group: "kra3-b-guest", max: 10 }, contribution: "not-applicable", evidence: ["Invitation letter"], conditions: ["1 point per guesting, maximum 10, for television, radio, print, or online media."] },
-            { id: "kra3-b-train-local", name: "Resource person, convenor, facilitator, moderator, or speaker — Local, per hour", points: 2, maxPoints: 2, contribution: "not-applicable", evidence: ["Invitation letter", "Copy of the program", "Certificate of appreciation or a similar document"], conditions: ["2 points for every hour.", "The service must be at the tertiary or higher level."] },
-            { id: "kra3-b-train-intl", name: "Resource person, convenor, facilitator, moderator, or speaker — International, per hour", points: 3, maxPoints: 3, contribution: "not-applicable", evidence: ["Invitation letter", "Copy of the program", "Certificate of appreciation or a similar document"], conditions: ["3 points for every hour.", "The service must be at the tertiary or higher level."] },
-            { id: "kra3-b-ext-head", name: "Head of an extension or production project", points: 5, maxPoints: 30, groupMax: { group: "kra3-b-ext-head", max: 30 }, contribution: "not-applicable", evidence: ["Approval for the activity (governing board resolution, memorandum, or official communication)", "Appointment or designation as head", "Extension or production activity report"], conditions: ["5 points per project, maximum 30.", "The activity must be relevant to the faculty member’s field.", "Includes transfer of knowledge, skills, and technology; technical advice; advocacy; and extension-related research."] },
-            { id: "kra3-b-ext-participant", name: "Participant in an extension or production project", points: 2, maxPoints: 30, groupMax: { group: "kra3-b-ext-participant", max: 30 }, contribution: "not-applicable", evidence: ["Approval for the activity", "Extension or production activity report"], conditions: ["2 points per project, maximum 30.", "The activity must be relevant to the faculty member’s field."] }
+            {
+              id: "kra3-b-qa-local",
+              name: "Accreditation, evaluation, or assessment — Local",
+              points: 8,
+              maxPoints: 8,
+              contribution: "not-applicable",
+              evidence: [
+                "Official appointment/designation",
+                "Proof of actual engagement",
+                "SUC President authorization"
+              ],
+              conditions: [
+                "Points are earned per agency or organization engaged, not per deployment."
+              ]
+            },
+            {
+              id: "kra3-b-qa-intl",
+              name: "Accreditation, evaluation, or assessment — International",
+              points: 10,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Official appointment/designation",
+                "Proof of actual engagement",
+                "SUC President authorization"
+              ],
+              conditions: [
+                "Points are earned per organization, not per deployment."
+              ]
+            },
+            {
+              id: "kra3-b-judge-research",
+              name: "Judge or examiner — Research awards",
+              points: 2,
+              maxPoints: 2,
+              contribution: "not-applicable",
+              evidence: [
+                "Official invitation",
+                "Proof of award/competition",
+                "Proof of engagement",
+                "President/VP authorization"
+              ],
+              conditions: [
+                "Points are earned for every engagement during the cycle."
+              ]
+            },
+            {
+              id: "kra3-b-judge-academic",
+              name: "Judge or examiner — Academic competitions",
+              points: 1,
+              maxPoints: 1,
+              contribution: "not-applicable",
+              evidence: [
+                "Official invitation",
+                "Proof of competition",
+                "Proof of engagement",
+                "President/VP authorization"
+              ],
+              conditions: [
+                "Sponsored by a recognized agency or organization."
+              ]
+            },
+            {
+              id: "kra3-b-consult-local",
+              name: "Short-term consultant or expert — Local",
+              points: 8,
+              maxPoints: 8,
+              contribution: "not-applicable",
+              evidence: [
+                "Written agreement/contract/invitation with acceptance",
+                "Evidence of engagement",
+                "President/Chancellor/VP authorization"
+              ],
+              conditions: [
+                "Includes editor, peer reviewer, statistician, proposal evaluator, adjunct faculty, or technical expert of a government agency."
+              ]
+            },
+            {
+              id: "kra3-b-consult-intl",
+              name: "Short-term consultant or expert — International",
+              points: 10,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Written agreement/contract/invitation with acceptance",
+                "Evidence of engagement",
+                "President/Chancellor/VP authorization"
+              ],
+              conditions: [
+                "Educational, technological, professional, scientific, or cultural activity sponsored by a private organization or government."
+              ]
+            },
+            {
+              id: "kra3-b-column-occasional",
+              name: "Writer of an occasional newspaper column",
+              points: 2,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Compiled newspaper articles",
+                "Corresponding front pages showing publication name and date"
+              ],
+              conditions: [
+                "2 points per published article, maximum 10."
+              ],
+              groupMax: {
+                group: "kra3-b-column-occasional",
+                max: 10
+              }
+            },
+            {
+              id: "kra3-b-column-regular",
+              name: "Writer of a regular newspaper column",
+              points: 10,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Compiled articles of the regular column",
+                "Corresponding front pages"
+              ],
+              conditions: [
+                "Points are earned per regular column."
+              ]
+            },
+            {
+              id: "kra3-b-host",
+              name: "Host of a television or radio program",
+              points: 10,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Contract, invitation, or similar document",
+                "On-air schedule"
+              ],
+              conditions: [
+                "Points are earned per regular program."
+              ]
+            },
+            {
+              id: "kra3-b-guest",
+              name: "Guesting as a technical expert",
+              points: 1,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Invitation letter"
+              ],
+              conditions: [
+                "1 point per guesting, maximum 10."
+              ],
+              groupMax: {
+                group: "kra3-b-guest",
+                max: 10
+              }
+            },
+            {
+              id: "kra3-b-train-local",
+              name: "Resource person, convenor, facilitator, moderator, or speaker — Local, per hour",
+              points: 2,
+              maxPoints: 2,
+              contribution: "not-applicable",
+              evidence: [
+                "Invitation letter",
+                "Program",
+                "Certificate of appreciation or similar"
+              ],
+              conditions: [
+                "2 points for every hour.",
+                "Service must be at the tertiary or higher level."
+              ]
+            },
+            {
+              id: "kra3-b-train-intl",
+              name: "Resource person, convenor, facilitator, moderator, or speaker — International, per hour",
+              points: 3,
+              maxPoints: 3,
+              contribution: "not-applicable",
+              evidence: [
+                "Invitation letter",
+                "Program",
+                "Certificate of appreciation or similar"
+              ],
+              conditions: [
+                "3 points for every hour.",
+                "Service must be at the tertiary or higher level."
+              ]
+            },
+            {
+              id: "kra3-b-ext-head",
+              name: "Head of an extension or production / ISR project",
+              points: 5,
+              maxPoints: 30,
+              contribution: "not-applicable",
+              evidence: [
+                "Approval for the activity",
+                "Appointment or designation as head",
+                "Extension or production activity report"
+              ],
+              conditions: [
+                "5 points per project, maximum 30 under Institutional Social Responsibility.",
+                "Activity must be relevant to the faculty’s field."
+              ],
+              groupMax: {
+                group: "kra3-b-ext-head",
+                max: 30
+              }
+            },
+            {
+              id: "kra3-b-ext-participant",
+              name: "Participant in an extension or production / ISR project",
+              points: 2,
+              maxPoints: 30,
+              contribution: "not-applicable",
+              evidence: [
+                "Approval for the activity",
+                "Extension or production activity report"
+              ],
+              conditions: [
+                "2 points per project, maximum 30 under Institutional Social Responsibility."
+              ],
+              groupMax: {
+                group: "kra3-b-ext-participant",
+                max: 30
+              }
+            }
           ]
         },
         {
           id: "kra3-c",
-          name: "Criterion C — Quality of Extension Services",
+          name: "Criterion C — Relevance and Quality of Extension Services",
           maxPoints: 20,
-          description: "Relevance and quality of outreach and extension services, measured through client satisfaction.",
+          description: "Client satisfaction rating for outreach and extension projects.",
           indicators: [
             {
               id: "kra3-c-satisfaction",
               name: "Client satisfaction rating for outreach and extension projects",
-              pointsLabel: "Average rating ÷ 100 × 20",
+              pointsLabel: "Overall CSR ÷ 100 × 20",
               maxPoints: 20,
               contribution: "not-applicable",
-              formula: { type: "rating", multiplier: 20 },
-              evidence: ["Summary of satisfaction or evaluation ratings for the evaluation period and the computed average, using the prescribed template"],
+              formula: {
+                type: "rating",
+                multiplier: 20
+              },
+              evidence: [
+                "Summary of client satisfaction / CSR ratings for the evaluation period using the prescribed instrument"
+              ],
               conditions: [
-                "For 1 July 2019 to 31 July 2022, SUCs use the existing Instrument for Extension prescribed by the Zonal Centers.",
-                "If that instrument is absent, the client satisfaction survey accomplished by beneficiaries may be used.",
-                "If a survey uses another rating scale, the SUC transmutes it to 100 points.",
-                "Points = average rating ÷ 100 × 20."
+                "Points = (Overall CSR ÷ 100) × 20.",
+                "Projects claimed here must also be declared under Institutional Social Responsibility in Criterion B.",
+                "Follow the CMO / institutional instrument phasing in Section 35 for the applicable evaluation years."
               ]
             }
           ]
@@ -509,26 +1737,294 @@ FL.rules = {
           name: "Criterion D — Bonus Criterion (Administrative Designation)",
           maxPoints: 20,
           bonus: true,
-          description: "Bonus points for administrative designation. Not every faculty member holds a designation. If more than one designation was held, only the highest is credited. The designation must have been held for at least one year in the evaluation period. The committee must have been approved by the SUC board.",
+          description: "Bonus points for administrative designations held for at least one continuous year within the evaluation period. Points are credited per year for each such designation. OIC service of at least one year is likewise credited. Committee creation must be Governing Board-approved.",
           indicators: [
-            { id: "kra3-d-president", name: "President or OIC President", points: 20, maxPoints: 20, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report per designation submitted to the authorized official"], conditions: ["Institutional level.", "At least one year within the evaluation period.", "If several designations were held, only the highest is credited."] },
-            { id: "kra3-d-vp", name: "Vice-President", points: 15, maxPoints: 15, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["Institutional level. At least one year."] },
-            { id: "kra3-d-chancellor", name: "Chancellor", points: 10, maxPoints: 10, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["Institutional level. At least one year."] },
-            { id: "kra3-d-vc", name: "Vice-Chancellor", points: 8, maxPoints: 8, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["Institutional level. At least one year."] },
-            { id: "kra3-d-campus", name: "Campus Director, Administrator, or Head", points: 8, maxPoints: 8, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["Institutional level. At least one year."] },
-            { id: "kra3-d-regent", name: "Faculty Regent", points: 8, maxPoints: 8, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["Institutional level. At least one year."] },
-            { id: "kra3-d-director", name: "Office Director", points: 6, maxPoints: 6, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["Institutional level. At least one year."] },
-            { id: "kra3-d-usec", name: "University or College Secretary", points: 6, maxPoints: 6, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["Institutional level. At least one year."] },
-            { id: "kra3-d-project", name: "Project Head (institution level)", points: 4, maxPoints: 4, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["Institutional level. At least one year."] },
-            { id: "kra3-d-inst-chair", name: "Institution-level committee — Chair", points: 3, maxPoints: 3, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["The committee must be approved by the SUC board.", "At least one year."] },
-            { id: "kra3-d-inst-member", name: "Institution-level committee — Member", points: 2, maxPoints: 2, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["The committee must be approved by the SUC board."] },
-            { id: "kra3-d-dean", name: "Dean", points: 6, maxPoints: 6, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["College or department level. At least one year."] },
-            { id: "kra3-d-adean", name: "Associate Dean", points: 5, maxPoints: 5, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["College or department level. At least one year."] },
-            { id: "kra3-d-csec", name: "College Secretary", points: 3, maxPoints: 3, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["College or department level. At least one year."] },
-            { id: "kra3-d-dept", name: "Department Head", points: 4, maxPoints: 4, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["College or department level. At least one year."] },
-            { id: "kra3-d-chair", name: "Program Chair or Project Head (department level)", points: 3, maxPoints: 3, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["College or department level. At least one year."] },
-            { id: "kra3-d-dept-chair", name: "Department-level committee — Chair", points: 2, maxPoints: 2, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["The committee must be approved by the SUC board."] },
-            { id: "kra3-d-dept-member", name: "Department-level committee — Member", points: 1, maxPoints: 1, contribution: "not-applicable", evidence: ["Appointment or designation with effectivity period", "Accomplishment report"], conditions: ["The committee must be approved by the SUC board."] }
+            {
+              id: "kra3-d-president",
+              name: "President or OIC President",
+              points: 20,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Institutional level.",
+                "At least one continuous year within the evaluation period.",
+                "Points are credited per year."
+              ]
+            },
+            {
+              id: "kra3-d-vp",
+              name: "Vice-President",
+              points: 15,
+              maxPoints: 15,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Institutional level. Per year, minimum one continuous year."
+              ]
+            },
+            {
+              id: "kra3-d-chancellor",
+              name: "Chancellor",
+              points: 10,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Institutional level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-vc",
+              name: "Vice-Chancellor",
+              points: 8,
+              maxPoints: 8,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Institutional level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-campus",
+              name: "Campus Director or Administrator",
+              points: 8,
+              maxPoints: 8,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Institutional level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-regent",
+              name: "Faculty Trustee or Regent",
+              points: 8,
+              maxPoints: 8,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Annual report of the faculty association"
+              ],
+              conditions: [
+                "Institutional level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-director",
+              name: "Office Director",
+              points: 6,
+              maxPoints: 6,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Institutional level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-usec",
+              name: "University or College Secretary",
+              points: 6,
+              maxPoints: 6,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Institutional level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-project",
+              name: "Project Head (institution level)",
+              points: 4,
+              maxPoints: 4,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Institutional level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-inst-chair",
+              name: "Institution-level committee — Chair",
+              points: 3,
+              maxPoints: 3,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Committee creation must be Governing Board-approved.",
+                "Per year."
+              ]
+            },
+            {
+              id: "kra3-d-inst-member",
+              name: "Institution-level committee — Member",
+              points: 2,
+              maxPoints: 2,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Committee creation must be Governing Board-approved.",
+                "Per year."
+              ]
+            },
+            {
+              id: "kra3-d-inst-coord",
+              name: "Coordinator (institution level)",
+              points: 2,
+              maxPoints: 2,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Institutional level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-dean",
+              name: "Dean",
+              points: 6,
+              maxPoints: 6,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "College/department level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-adean",
+              name: "Associate Dean",
+              points: 5,
+              maxPoints: 5,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "College/department level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-csec",
+              name: "College Secretary",
+              points: 3,
+              maxPoints: 3,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "College/department level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-dept",
+              name: "Department Head",
+              points: 4,
+              maxPoints: 4,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "College/department level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-chair",
+              name: "Program Chair or Project Head (department level)",
+              points: 3,
+              maxPoints: 3,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "College/department level. Per year."
+              ]
+            },
+            {
+              id: "kra3-d-dept-chair",
+              name: "Department-level committee — Chair",
+              points: 2,
+              maxPoints: 2,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Committee creation must be Governing Board-approved.",
+                "Per year."
+              ]
+            },
+            {
+              id: "kra3-d-dept-member",
+              name: "Department-level committee — Member",
+              points: 1,
+              maxPoints: 1,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "Committee creation must be Governing Board-approved.",
+                "Per year."
+              ]
+            },
+            {
+              id: "kra3-d-dept-coord",
+              name: "Coordinator (college/department level)",
+              points: 1,
+              maxPoints: 1,
+              contribution: "not-applicable",
+              evidence: [
+                "Appointment or designation with effectivity period",
+                "Accomplishment report"
+              ],
+              conditions: [
+                "College/department level. Per year."
+              ]
+            }
           ]
         }
       ]
@@ -539,31 +2035,189 @@ FL.rules = {
       name: "Professional Development",
       maxPoints: 100,
       bonusMax: 20,
-      summary: "A faculty may earn 100 points from Criteria A (20), B (60), and C (20). Newly hired faculty may receive up to 20 additional points under Criterion D for prior academic or industry experience. Criterion D applies to new entrants only.",
+      summary: "A faculty may earn 100 points from Criteria A (20), B (60), and C (20). Newly appointed faculty may receive up to 20 additional points under Criterion D; the final KRA total still cannot exceed 100.",
       criteria: [
         {
           id: "kra4-a",
           name: "Criterion A — Involvement in Professional Organizations",
           maxPoints: 20,
-          description: "Current individual membership and an active role in a relevant, recognized professional organization or learned, honor, or scientific society.",
+          description: "Membership and active participation in registered professional organizations and societies aligned with the faculty’s discipline, specialization, or designation.",
           indicators: [
-            { id: "kra4-a-member", name: "Current membership and active contribution in a relevant professional organization", points: 5, maxPoints: 20, groupMax: { group: "kra4-a-member", max: 20 }, contribution: "not-applicable", evidence: ["Proof of membership (certificate or identification card)", "Certification of engagement, role, or assignment from the head of the organization"], conditions: ["5 points for every contribution in one or more professional organizations, within the 20-point criterion maximum.", "The organization must be aligned with the faculty member’s field. Social clubs, faculty associations, and alumni associations are not considered.", "The faculty must show a contribution, such as officer, event organizer, project implementer, or committee member."] }
+            {
+              id: "kra4-a-member",
+              name: "Membership and active participation in a registered professional organization",
+              points: 5,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Valid certificate of membership or ID",
+                "For non-APO organizations: SEC registration, organizational profile (mandate, national membership, ≥10 years existence), and evidence of annual conventions for the past three years",
+                "Evidence of active engagement beyond mere attendance"
+              ],
+              conditions: [
+                "5 points per organization with active involvement, within the 20-point criterion maximum.",
+                "Organization must be aligned with the faculty’s discipline, specialization, or designation.",
+                "PRC AIPOs, SEC-registered national organizations meeting Section 38 qualifications, and multidisciplinary bodies such as NRCP and NAST are recognized."
+              ],
+              groupMax: {
+                group: "kra4-a-member",
+                max: 20
+              }
+            }
           ]
         },
         {
           id: "kra4-b",
           name: "Criterion B — Continuing Development",
           maxPoints: 60,
-          description: "Postgraduate qualifications, authorized capacity-building activities, and paper presentations. Educational qualifications are capped at 40, participation at 10, and paper presentation at 10.",
+          description: "Educational qualifications, capacity-building participation, and paper presentations.",
           indicators: [
-            { id: "kra4-b-postmaster", name: "Post-master diploma or certificate", points: 10, maxPoints: 40, groupMax: { group: "kra4-b-educ", max: 40 }, contribution: "not-applicable", evidence: ["Transcript of records, diploma, or certificate"], conditions: ["Counted within the 40-point cap for educational qualifications and the 60-point cap for Criterion B.", "Honorary degrees are not considered."] },
-            { id: "kra4-b-postdoc", name: "Post-doctorate diploma or certificate", points: 10, maxPoints: 40, groupMax: { group: "kra4-b-educ", max: 40 }, contribution: "not-applicable", evidence: ["Transcript of records, diploma, or certificate"], conditions: ["Counted within the 40-point educational-qualification cap.", "Honorary degrees are not considered."] },
-            { id: "kra4-b-masters", name: "Additional master’s degree", points: 20, maxPoints: 40, groupMax: { group: "kra4-b-educ", max: 40 }, contribution: "not-applicable", evidence: ["Transcript of records, diploma, or certificate"], conditions: ["This refers to postgraduate qualifications taken after a master’s degree.", "For a newly hired faculty who has not yet been evaluated, a qualification earned before entering the institution is counted."] },
-            { id: "kra4-b-doctorate", name: "Doctorate degree or additional doctorate degree", points: 40, maxPoints: 40, groupMax: { group: "kra4-b-educ", max: 40 }, contribution: "not-applicable", evidence: ["Transcript of records, diploma, or certificate"], conditions: ["A faculty from Instructor I through Associate Professor V who completed a first doctorate that meets the vertical-articulation and institutional-recognition conditions in Annex II is given an automatic one sub-rank reclassification instead of these points.", "That automatic sub-rank is applied before points are computed. A doctorate that does not meet those conditions still earns points.", "The official sub-rank is granted through the evaluation process in Annex III, not by FacultyLink."] },
-            { id: "kra4-b-part-local", name: "Participation in a conference, seminar, workshop, or industry immersion — Local", points: 1, maxPoints: 10, groupMax: { group: "kra4-b-part", max: 10 }, contribution: "not-applicable", evidence: ["Certificate of participation"], conditions: ["1 point per activity, maximum 10.", "The activity must be endorsed by CHED or another government agency, or organized by a CHED-recognized private HEI, professional organization, or accrediting body, and the faculty’s participation must be authorized by the SUC governing board or president.", "The activity must be relevant to the faculty member’s field or designation.", "Half-day activities are not considered."] },
-            { id: "kra4-b-part-intl", name: "Participation in a conference, seminar, workshop, or industry immersion — International", points: 2, maxPoints: 10, groupMax: { group: "kra4-b-part", max: 10 }, contribution: "not-applicable", evidence: ["Certificate of participation"], conditions: ["2 points per activity, maximum 10, within the same cap as local participation.", "An international conference is bilateral or multilateral, or has at least three countries represented, held in the Philippines or abroad.", "Half-day activities are not considered. Participation must be authorized."] },
-            { id: "kra4-b-paper-local", name: "Paper presentation in a conference — Local", points: 3, maxPoints: 10, groupMax: { group: "kra4-b-paper", max: 10 }, contribution: "not-applicable", evidence: ["Letter or certificate of acceptance"], conditions: ["3 points per presentation, maximum 10.", "The conference must be endorsed by CHED or another government agency, or organized by a recognized professional organization or accrediting body, and the presentation must be authorized by the SUC governing board or president."] },
-            { id: "kra4-b-paper-intl", name: "Paper presentation in a conference — International", points: 5, maxPoints: 10, groupMax: { group: "kra4-b-paper", max: 10 }, contribution: "not-applicable", evidence: ["Letter or certificate of acceptance"], conditions: ["5 points per presentation, maximum 10.", "An international conference has at least three countries represented, or is bilateral or multilateral, held in the Philippines or abroad."] }
+            {
+              id: "kra4-b-postmaster",
+              name: "Post-master diploma or certificate",
+              points: 10,
+              maxPoints: 40,
+              contribution: "not-applicable",
+              evidence: [
+                "CAV TOR / diploma / certificate; CHED equivalency for foreign degrees when required"
+              ],
+              conditions: [
+                "Counted within the educational-qualification and Criterion B caps.",
+                "Honorary degrees and non-CHED-recognized programs are not considered."
+              ],
+              groupMax: {
+                group: "kra4-b-educ",
+                max: 40
+              }
+            },
+            {
+              id: "kra4-b-postdoc",
+              name: "Post-doctorate diploma or certificate",
+              points: 10,
+              maxPoints: 40,
+              contribution: "not-applicable",
+              evidence: [
+                "CAV TOR / diploma / certificate; CHED equivalency for foreign degrees when required"
+              ],
+              conditions: [
+                "Counted within the educational-qualification cap."
+              ],
+              groupMax: {
+                group: "kra4-b-educ",
+                max: 40
+              }
+            },
+            {
+              id: "kra4-b-masters",
+              name: "Additional master’s degree",
+              points: 20,
+              maxPoints: 40,
+              contribution: "not-applicable",
+              evidence: [
+                "CAV TOR / diploma / certificate; CHED equivalency for foreign degrees when required"
+              ],
+              conditions: [
+                "Postgraduate qualifications earned and submitted for reclassification."
+              ],
+              groupMax: {
+                group: "kra4-b-educ",
+                max: 40
+              }
+            },
+            {
+              id: "kra4-b-doctorate",
+              name: "Doctorate degree or additional doctorate degree",
+              points: 40,
+              maxPoints: 40,
+              contribution: "not-applicable",
+              evidence: [
+                "CAV TOR / diploma / certificate; CHED equivalency for foreign degrees when required"
+              ],
+              conditions: [
+                "Automatic one sub-rank for a qualifying first doctorate is governed by Section 45 and is applied through the official evaluation process, not by FacultyLink.",
+                "A doctorate that does not meet automatic-sub-rank conditions may still earn points here."
+              ],
+              groupMax: {
+                group: "kra4-b-educ",
+                max: 40
+              }
+            },
+            {
+              id: "kra4-b-part-local",
+              name: "Participation in a conference, seminar, workshop, or capacity-building activity — Local",
+              points: 1,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Certificate of participation",
+                "Evidence of Presidential / Governing Board approval as required"
+              ],
+              conditions: [
+                "1 point per activity, maximum 10.",
+                "Minimum total duration of six (6) hours; multi-day activities under one theme count as one activity.",
+                "Virtual structured programs require at least eight (8) hours and a reputable host."
+              ],
+              groupMax: {
+                group: "kra4-b-part",
+                max: 10
+              }
+            },
+            {
+              id: "kra4-b-part-intl",
+              name: "Participation in a conference, seminar, workshop, or capacity-building activity — International",
+              points: 2,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Certificate of participation",
+                "Evidence of approval as required"
+              ],
+              conditions: [
+                "2 points per activity, maximum 10 within the same participation cap."
+              ],
+              groupMax: {
+                group: "kra4-b-part",
+                max: 10
+              }
+            },
+            {
+              id: "kra4-b-paper-local",
+              name: "Paper presentation in a conference — Local",
+              points: 3,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Letter or certificate of acceptance",
+                "Evidence of approval to present"
+              ],
+              conditions: [
+                "3 points per presentation, maximum 10.",
+                "A paper presented and also published in Scopus/WoS/ACI in the same period may earn both presentation points and KRA II research points."
+              ],
+              groupMax: {
+                group: "kra4-b-paper",
+                max: 10
+              }
+            },
+            {
+              id: "kra4-b-paper-intl",
+              name: "Paper presentation in a conference — International",
+              points: 5,
+              maxPoints: 10,
+              contribution: "not-applicable",
+              evidence: [
+                "Letter or certificate of acceptance",
+                "Evidence of approval to present",
+                "Evidence that at least three countries are represented among speakers and/or participants"
+              ],
+              conditions: [
+                "5 points per presentation, maximum 10."
+              ],
+              groupMax: {
+                group: "kra4-b-paper",
+                max: 10
+              }
+            }
           ]
         },
         {
@@ -572,53 +2226,275 @@ FL.rules = {
           maxPoints: 20,
           description: "Awards of distinction in the faculty member’s specialization, profession, or assignment.",
           indicators: [
-            { id: "kra4-c-inst", name: "Institutional award", points: 2, maxPoints: 2, contribution: "not-applicable", evidence: ["Certificate of recognition or award", "Picture of the plaque, trophy, medal, or similar item"], conditions: ["Institutional and local or regional awards in instruction, research, extension, production, administration, quality assurance, or contribution to the discipline, given by a recognized organization."] },
-            { id: "kra4-c-local", name: "Local award (city, municipality, or province)", points: 3, maxPoints: 3, contribution: "not-applicable", evidence: ["Certificate of recognition or award", "Picture of the plaque, trophy, medal, or similar item"], conditions: ["Given by a recognized organization in a relevant area of specialization, profession, or assignment."] },
-            { id: "kra4-c-regional", name: "Regional award (in-country)", points: 4, maxPoints: 4, contribution: "not-applicable", evidence: ["Certificate of recognition or award", "Picture of the plaque, trophy, medal, or similar item"], conditions: ["Given by a recognized organization."] },
-            { id: "kra4-c-national", name: "National or international award — automatic sub-rank", points: null, pointsLabel: "Automatic one sub-rank (not a KRA point value)", maxPoints: 0, contribution: "not-applicable", evidence: ["Certificate of recognition or award", "Picture of the plaque, trophy, medal, or similar item"], conditions: ["A national or international award by a recognized organization is an automatic one sub-rank increase, applied on top of the evaluation results after points and sub-ranks have been determined.", "Examples named in Annex II include the Metrobank Foundation Outstanding Filipino Award for Teachers, Palanca Foundation Awards, NAST Awards, CSC Awards, the Nobel Prize, the Ramon Magsaysay Award, the Galileo Galilei Medal, and the Global Teacher Prize.", "FacultyLink records the award as documentary evidence. It does not grant the official sub-rank."] }
+            {
+              id: "kra4-c-inst",
+              name: "Institutional award",
+              points: 2,
+              maxPoints: 2,
+              contribution: "not-applicable",
+              evidence: [
+                "Short description of the award",
+                "Certificate or photo of plaque/trophy/medal",
+                "Organization profile",
+                "Evidence that SUC PRAISE Guidelines are CSC-approved"
+              ],
+              conditions: [
+                "Institutional awards under Section 43."
+              ]
+            },
+            {
+              id: "kra4-c-local",
+              name: "Local and regional award (city, municipality, or province)",
+              points: 3,
+              maxPoints: 3,
+              contribution: "not-applicable",
+              evidence: [
+                "Short description of the award",
+                "Certificate or photo of plaque/trophy/medal",
+                "Award criteria and mechanics",
+                "Selection process",
+                "Award-giving organization profile"
+              ],
+              conditions: [
+                "Local and regional awards share this point value under Annex A."
+              ]
+            },
+            {
+              id: "kra4-c-national",
+              name: "National award",
+              points: 4,
+              maxPoints: 4,
+              contribution: "not-applicable",
+              evidence: [
+                "Short description of the award",
+                "Certificate or photo of plaque/trophy/medal",
+                "Award criteria and mechanics",
+                "Selection process",
+                "Award-giving organization profile"
+              ],
+              conditions: [
+                "National awards under Section 43 earn 4 KRA points.",
+                "Prestigious national/international awards that qualify for automatic one sub-rank under Section 46 are handled separately from this point value."
+              ]
+            }
           ]
         },
         {
           id: "kra4-d",
-          name: "Criterion D — Bonus Indicators for Newly Hired Faculty",
+          name: "Criterion D — Additional Points for Newly Appointed Faculty",
           maxPoints: 20,
           bonus: true,
-          description: "Applicable to new entrants only. Points are for every year of full-time academic service or industry experience before entry.",
+          description: "Applicable to newly appointed faculty who have not yet undergone reclassification. Points are for every year of prior full-time academic or industry experience; fractional years are proportional by months.",
           indicators: [
-            { id: "kra4-d-pres", name: "Full-time academic service — President, per year", points: 5, maxPoints: 20, groupMax: { group: "kra4-d", max: 20 }, contribution: "not-applicable", evidence: ["Service record, certificate of employment, notice of appointment or designation, or a similar document"], conditions: ["New entrants only.", "Full-time service in an institution of higher learning."] },
-            { id: "kra4-d-vp", name: "Full-time academic service — Vice President, Dean, or Director, per year", points: 4, maxPoints: 20, groupMax: { group: "kra4-d", max: 20 }, contribution: "not-applicable", evidence: ["Service record or certificate of employment"], conditions: ["New entrants only."] },
-            { id: "kra4-d-head", name: "Full-time academic service — Department or Program Head, per year", points: 3, maxPoints: 20, groupMax: { group: "kra4-d", max: 20 }, contribution: "not-applicable", evidence: ["Service record or certificate of employment"], conditions: ["New entrants only."] },
-            { id: "kra4-d-faculty", name: "Full-time academic service — Faculty member, per year", points: 2, maxPoints: 20, groupMax: { group: "kra4-d", max: 20 }, contribution: "not-applicable", evidence: ["Service record or certificate of employment"], conditions: ["New entrants only."] },
-            { id: "kra4-d-mgr", name: "Industry experience — Managerial or supervisory, per year", points: 4, maxPoints: 20, groupMax: { group: "kra4-d", max: 20 }, contribution: "not-applicable", evidence: ["Service record, certificate of employment, or notice of appointment"], conditions: ["New entrants only.", "Non-academic organization."] },
-            { id: "kra4-d-tech", name: "Industry experience — Technical and skilled, per year", points: 3, maxPoints: 20, groupMax: { group: "kra4-d", max: 20 }, contribution: "not-applicable", evidence: ["Service record or certificate of employment"], conditions: ["New entrants only.", "Non-academic organization."] },
-            { id: "kra4-d-support", name: "Industry experience — Support or administrative staff, per year", points: 2, maxPoints: 20, groupMax: { group: "kra4-d", max: 20 }, contribution: "not-applicable", evidence: ["Service record or certificate of employment"], conditions: ["New entrants only.", "Non-academic organization."] }
+            {
+              id: "kra4-d-pres",
+              name: "Full-time academic service — President, per year",
+              points: 5,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Service record, certificate of employment, notice of appointment/designation, or similar",
+                "Brief job description"
+              ],
+              conditions: [
+                "Newly appointed faculty only.",
+                "Fractional years earn proportionate points."
+              ],
+              groupMax: {
+                group: "kra4-d",
+                max: 20
+              }
+            },
+            {
+              id: "kra4-d-vp",
+              name: "Full-time academic service — Vice President, Dean, or Director, per year",
+              points: 4,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Service record or certificate of employment",
+                "Brief job description"
+              ],
+              conditions: [
+                "Newly appointed faculty only."
+              ],
+              groupMax: {
+                group: "kra4-d",
+                max: 20
+              }
+            },
+            {
+              id: "kra4-d-head",
+              name: "Full-time academic service — Department or Program Head, per year",
+              points: 3,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Service record or certificate of employment",
+                "Brief job description"
+              ],
+              conditions: [
+                "Newly appointed faculty only."
+              ],
+              groupMax: {
+                group: "kra4-d",
+                max: 20
+              }
+            },
+            {
+              id: "kra4-d-faculty",
+              name: "Full-time academic service — Faculty member, per year",
+              points: 2,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Service record or certificate of employment",
+                "Brief job description"
+              ],
+              conditions: [
+                "Newly appointed faculty only."
+              ],
+              groupMax: {
+                group: "kra4-d",
+                max: 20
+              }
+            },
+            {
+              id: "kra4-d-mgr",
+              name: "Industry experience — Managerial or supervisory, per year",
+              points: 4,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Service record, certificate of employment, or notice of appointment",
+                "Brief job description"
+              ],
+              conditions: [
+                "Newly appointed faculty only.",
+                "Non-academic organization."
+              ],
+              groupMax: {
+                group: "kra4-d",
+                max: 20
+              }
+            },
+            {
+              id: "kra4-d-tech",
+              name: "Industry experience — Technical and skilled, per year",
+              points: 3,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Service record or certificate of employment",
+                "Brief job description"
+              ],
+              conditions: [
+                "Newly appointed faculty only."
+              ],
+              groupMax: {
+                group: "kra4-d",
+                max: 20
+              }
+            },
+            {
+              id: "kra4-d-support",
+              name: "Industry experience — Support or administrative staff, per year",
+              points: 2,
+              maxPoints: 20,
+              contribution: "not-applicable",
+              evidence: [
+                "Service record or certificate of employment",
+                "Brief job description"
+              ],
+              conditions: [
+                "Newly appointed faculty only."
+              ],
+              groupMax: {
+                group: "kra4-d",
+                max: 20
+              }
+            }
           ]
         }
       ]
     }
   ],
   classification: [
-    { priority: 1, kraId: "kra2", label: "KRA II — Research, Invention, and Creative Work", keywords: ["Journal", "ISSN", "Publications"], fields: "Title, keywords, text" },
-    { priority: 2, kraId: "kra1", label: "KRA I — Instruction", keywords: ["teaching", "course", "instruction"], fields: "Title, keywords, text" },
-    { priority: 3, kraId: "kra3", label: "KRA III — Extension", keywords: ["community", "outreach", "extension"], fields: "Title, keywords, text" },
-    { priority: 4, kraId: "kra4", label: "KRA IV — Professional Development", keywords: ["training", "seminar", "certificate"], fields: "Title, keywords, text" }
+    {
+      priority: 1,
+      kraId: "kra2",
+      label: "KRA II — Research, Innovation and/or Creative Work",
+      keywords: [
+        "Journal",
+        "ISSN",
+        "Publications",
+        "Patent",
+        "Creative"
+      ],
+      fields: "Title, keywords, text"
+    },
+    {
+      priority: 2,
+      kraId: "kra1",
+      label: "KRA I — Instruction",
+      keywords: [
+        "teaching",
+        "course",
+        "instruction",
+        "module",
+        "textbook"
+      ],
+      fields: "Title, keywords, text"
+    },
+    {
+      priority: 3,
+      kraId: "kra3",
+      label: "KRA III — Extension",
+      keywords: [
+        "community",
+        "outreach",
+        "extension",
+        "partnership"
+      ],
+      fields: "Title, keywords, text"
+    },
+    {
+      priority: 4,
+      kraId: "kra4",
+      label: "KRA IV — Professional Development",
+      keywords: [
+        "training",
+        "seminar",
+        "certificate",
+        "award"
+      ],
+      fields: "Title, keywords, text"
+    }
   ],
   validationRules: [
-    { condition: "Missing fields (title, author, or date)", action: "Invalid" },
-    { condition: "Cannot classify", action: "Send to reviewer" },
-    { condition: "Duplicate document (file hash)", action: "Ignore" }
+    {
+      condition: "Missing fields (title, author, or date)",
+      action: "Invalid"
+    },
+    {
+      condition: "Cannot classify",
+      action: "Send to reviewer"
+    },
+    {
+      condition: "Duplicate document (file hash)",
+      action: "Ignore"
+    }
   ],
   workflow: [
-    "OCR Extraction",
-    "Document Classification",
-    "Required Field Validation",
-    "DBM–CHED Rule Matching",
-    "Base Point Assignment",
-    "Contribution Allocation",
-    "Final Score",
-    "Duplicate Check",
-    "KRA Score Aggregation",
-    "Rank Upgrade Simulation"
+    "Faculty uploads document",
+    "OCR extraction",
+    "Document validation",
+    "Rule-based KRA scoring",
+    "Provisional score and rank simulation",
+    "Reviewer verification",
+    "Reviewer decision",
+    "Score recalculation",
+    "Updated rank simulation"
   ]
 };
 

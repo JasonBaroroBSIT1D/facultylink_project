@@ -13,7 +13,7 @@ class PreparationPeriodCard extends StatelessWidget {
   final bool compact;
 
   static const disclaimer =
-      'FacultyLink is preparatory self-assessment only. Scores and reviewer feedback here are not the official DBM–CHED evaluation or final rank decision.';
+      'FacultyLink is preparatory self-assessment only under DBM–CHED JC No. 01, s. 2026. Scores and reviewer feedback here are not the official evaluation or final rank decision.';
 
   @override
   Widget build(BuildContext context) {

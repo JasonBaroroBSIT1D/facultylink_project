@@ -41,5 +41,8 @@ class Config:
     SQLALCHEMY_DATABASE_URI = _require_postgres_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(days=1)
-    UPLOAD_FOLDER = Path(os.getenv("UPLOAD_FOLDER", BASE_DIR / "uploads"))
+    _upload_folder = Path(os.getenv("UPLOAD_FOLDER", "uploads"))
+    if not _upload_folder.is_absolute():
+        _upload_folder = BASE_DIR / _upload_folder
+    UPLOAD_FOLDER = _upload_folder
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024

@@ -9,7 +9,7 @@ FL.institution = {
   campus: "Oroquieta City",
   system: "FacultyLink",
   tagline: "Intelligent Document-Validated Faculty Self-Assessment System",
-  circular: "DBM–CHED Joint Circular Rank Upgrade and Reclassification"
+  circular: "DBM–CHED Joint Circular No. 01, s. 2026 — Faculty Reclassification"
 };
 
 FL.seed = {

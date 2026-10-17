@@ -547,17 +547,13 @@ FL.documents = {
 
   workflowHtml: function (doc, scored) {
     const validation = scored.validation;
-    let current = 9;
-    if (!doc.ocr || doc.ocr.status !== "completed") current = 0;
-    else if (validation.classification.status === "unclassified") current = 1;
-    else if (!validation.fields.title || !validation.fields.author || !validation.fields.date) current = 2;
-    else if (!scored.indicator) current = 3;
-    else if (scored.basePoints === null) current = 4;
-    else if (scored.indicator.contribution === "declared" && scored.contributionPercent === null) current = 5;
-    else if (scored.finalScore === null) current = 6;
-    else if (validation.duplicateStatus === "duplicate") current = 7;
-    else if (doc.status !== "approved") current = 6;
-    else current = 9;
+    let current = 8;
+    if (!doc.ocr || doc.ocr.status !== "completed") current = 1;
+    else if (!validation.fields.title || !validation.fields.author || !validation.fields.date || validation.duplicateStatus === "duplicate") current = 2;
+    else if (!scored.indicator || scored.finalScore === null) current = 3;
+    else if (doc.status === "pending-review" || doc.status === "pendingReview") current = 4;
+    else if (doc.status === "approved" || doc.status === "validated") current = 8;
+    else current = 6;
     return `
       <section class="card" id="workflow">
         <div class="card-head"><h2>Document processing workflow</h2></div>
@@ -581,8 +577,8 @@ FL.documents = {
     const officialMax = scored.historical ? scored.officialMax : (scored.indicator ? scored.indicator.maxPoints : null);
     const assigned = scored.historical ? scored.basePoints : (doc.review && typeof doc.review.assignedScore === "number" ? doc.review.assignedScore : "");
     const preview = FL.documents.scorePreview(doc, assigned === "" ? NaN : Number(assigned));
-    const scoreField = doc.status === "approved" || officialMax == null ? `
-      <p class="note">${doc.status === "approved" ? "This document already has an approved score." : "Match an Annex I indicator in Applicable DBM–CHED rule before assigning a score."}</p>` : `
+    const scoreField = officialMax == null ? `
+      <p class="note">Match an indicator before assigning a score.</p>` : `
       <div class="score-panel">
         <label class="field" for="decision-score"><span>Assigned score</span>
           <input id="decision-score" class="score-input score-input-lg" type="number" min="0" max="${FL.esc(String(officialMax))}" step="0.01" inputmode="decimal" value="${assigned === "" ? "" : FL.esc(String(assigned))}" placeholder="0">
@@ -602,9 +598,11 @@ FL.documents = {
       </label>
       <p class="field-error" id="feedback-error"></p>
       <div class="decision-row">
-        <button class="btn btn-primary" type="button" id="approve">Approve</button>
-        <button class="btn btn-warning" type="button" id="revise">Request revision</button>
+        <button class="btn btn-primary" type="button" id="approve">Accept</button>
+        <button class="btn btn-primary" type="button" id="correct">Correct</button>
         <button class="btn btn-danger" type="button" id="reject">Reject</button>
+        <button class="btn btn-warning" type="button" id="revise">Request revision</button>
+        <button class="btn" type="button" id="reopen">Reopen</button>
       </div>`;
   },
 
@@ -746,6 +744,45 @@ FL.documents = {
             FL.ui.toast(error.message || "The decision was not saved.", "danger");
           });
         }
+      });
+    });
+    document.getElementById("correct").addEventListener("click", function () {
+      error.textContent = "";
+      const assignedInput = document.getElementById("decision-score");
+      const assigned = assignedInput ? Number(assignedInput.value) : NaN;
+      const award = FL.documents.award(doc, assigned);
+      if (award.error) {
+        error.textContent = award.error;
+        if (assignedInput) assignedInput.focus();
+        return;
+      }
+      doc.status = "approved";
+      doc.feedback = feedback.value.trim() || "Score corrected by the reviewer.";
+      doc.remarks = doc.feedback;
+      doc.review = award.review;
+      doc.decidedAt = new Date().toISOString();
+      FL.store.saveDocument(doc).then(function () {
+        return FL.audit.record(user, "Corrected document score", doc.id, doc.feedback);
+      }).then(function () {
+        FL.ui.toast("Score corrected.", "ok");
+        FL.documents.paintReview(session, doc, true);
+      }).catch(function (saveError) {
+        FL.ui.toast(saveError.message || "The correction was not saved.", "danger");
+      });
+    });
+    document.getElementById("reopen").addEventListener("click", function () {
+      doc.status = "pending-review";
+      doc.review = null;
+      doc.feedback = feedback.value.trim() || "Reopened for review. The provisional score is shown until the next decision.";
+      doc.remarks = doc.feedback;
+      doc.decidedAt = new Date().toISOString();
+      FL.store.saveDocument(doc).then(function () {
+        return FL.audit.record(user, "Reopened document", doc.id, doc.feedback);
+      }).then(function () {
+        FL.ui.toast("Document reopened.", "ok");
+        FL.documents.paintReview(session, doc, true);
+      }).catch(function (saveError) {
+        FL.ui.toast(saveError.message || "The document was not reopened.", "danger");
       });
     });
   }

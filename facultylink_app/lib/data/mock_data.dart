@@ -4,7 +4,7 @@ import '../models/models.dart';
 abstract final class MockData {
   /// Prototype sample for AY 2025–2026. Status is hardcoded (not computed).
   static final preparationPeriod = PreparationPeriod(
-    cycleName: 'AY 2025–2026 Evaluation Preparation Cycle',
+    cycleName: 'JC No. 01, s. 2026 · Aug 1, 2023 – Jul 31, 2026',
     startDate: DateTime(2026, 6, 2),
     endDate: DateTime(2026, 9, 15),
     reviewerAvailableUntil: DateTime(2026, 9, 12),

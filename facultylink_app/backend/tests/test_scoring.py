@@ -10,7 +10,7 @@ from kra_config import (
     weighted_final_score,
     weights_for_rank,
 )
-from scoring import classify_kra, contribution_score, file_hash, process_upload
+from scoring import classify_kra, contribution_score, file_hash, process_upload, score_indicator
 
 
 def test_classify_research_from_journal_keywords():
@@ -74,6 +74,51 @@ def test_duplicate_file_hash_matches_same_bytes(tmp_path: Path):
     first.write_text("faculty evidence", encoding="utf-8")
     second.write_text("faculty evidence", encoding="utf-8")
     assert file_hash(str(first)) == file_hash(str(second))
+
+
+def test_indicator_score_uses_declared_share_and_cap():
+    shared = score_indicator(
+        "kra2-a-journal-co",
+        contribution_percent=40,
+        rating=None,
+        authors=2,
+    )
+    assert shared["base_points"] == 50
+    assert shared["points"] == 20
+
+    poetry = score_indicator(
+        "kra2-c-poetry",
+        contribution_percent=100,
+        rating=None,
+        authors=1,
+    )
+    assert poetry["points"] == 2
+    assert poetry["max_points"] == 2
+
+
+def test_indicator_rating_formula():
+    scored = score_indicator(
+        "kra1-a-student",
+        contribution_percent=None,
+        rating=80,
+        authors=1,
+    )
+    assert scored["points"] == 28.8
+
+
+def test_process_upload_uses_indicator_points():
+    result = process_upload(
+        title="Algebra textbook",
+        author="Maria Santos",
+        file_path=None,
+        declared_kra="instruction",
+        indicator_id="kra1-b-textbook-sole",
+        contribution_percent=100,
+    )
+    assert result["status"] == "pendingReview"
+    assert result["base_points"] == 30
+    assert result["points"] == 30
+    assert float(result["extracted_info"]["Provisional score"]) == 30
 
 
 def test_process_upload_flags_missing_title():

@@ -103,6 +103,7 @@ class ApiClient {
     required String fileName,
     String? criterionId,
     String? indicatorId,
+    double? contributionPercent,
     List<int>? fileBytes,
   }) async {
     final request = http.MultipartRequest('POST', _uri('/api/documents'))
@@ -114,6 +115,7 @@ class ApiClient {
         'fileName': fileName,
         if (criterionId != null && criterionId.isNotEmpty) 'criterionId': criterionId,
         if (indicatorId != null && indicatorId.isNotEmpty) 'indicatorId': indicatorId,
+        if (contributionPercent != null) 'contributionPercent': contributionPercent.toString(),
       });
 
     if (fileBytes != null) {

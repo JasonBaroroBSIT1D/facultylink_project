@@ -28,7 +28,7 @@ KRA_KEYS = (
     "professionalDevelopment",
 )
 
-# Annex I defaults when published overrides are empty (matches web rules.js).
+# JC No. 01, s. 2026 defaults when published overrides are empty (matches web rules.js).
 DEFAULT_KRA_MAX = {
     "instruction": 100,
     "research": 100,
@@ -236,8 +236,13 @@ def load_active_kra_config(db) -> dict:
 
 def document_earned_points(doc, config: dict | None = None) -> float:
     """Prefer reviewer-awarded score (web formula result); fall back to stored points."""
+    from indicator_rules import rule_for
+
     score = None
-    if getattr(doc, "reviewer_score", None) is not None:
+    if getattr(doc, "reviewer_score", None) is not None and getattr(doc, "status", None) in {
+        "validated",
+        "approved",
+    }:
         try:
             score = float(doc.reviewer_score)
         except (TypeError, ValueError):
@@ -248,10 +253,13 @@ def document_earned_points(doc, config: dict | None = None) -> float:
         except (TypeError, ValueError):
             score = 0.0
 
-    if config:
-        cap = indicator_cap(config, getattr(doc, "indicator_id", None))
-        if cap is not None:
-            score = min(score, cap)
+    cap = indicator_cap(config or {}, getattr(doc, "indicator_id", None)) if config else None
+    rule = rule_for(getattr(doc, "indicator_id", None))
+    if rule and isinstance(rule.get("maxPoints"), (int, float)):
+        rule_cap = float(rule["maxPoints"])
+        cap = rule_cap if cap is None else min(cap, rule_cap)
+    if cap is not None:
+        score = min(score, cap)
     return score
 
 
