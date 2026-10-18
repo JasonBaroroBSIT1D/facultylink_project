@@ -199,9 +199,14 @@ FL.documents = {
       <section class="card" id="scoring">${FL.documents.scoreHtml(scored, doc, canDecide)}</section>
       <section class="card" id="contribution">${FL.documents.contributionHtml(scored, doc)}</section>
       <section class="card" id="decision">${FL.documents.decisionHtml(doc, canDecide)}</section>`;
-    document.getElementById("open-doc").addEventListener("click", function () {
+    FL.documents.bindJumpNav();
+    const openOriginal = function (event) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
       if (doc.fileUrl) {
-        window.open(doc.fileUrl, "_blank", "noopener");
+        window.open(FL.documents.inlineFileUrl(doc), "_blank", "noopener");
         return;
       }
       FL.ui.modal({
@@ -209,7 +214,10 @@ FL.documents = {
         body: `<p>${FL.esc(doc.fileType)} · ${FL.esc(doc.fileSize)}</p><p class="note">The original file is not available on the server for this record.</p>`,
         cancelLabel: "Close"
       });
-    });
+    };
+    document.getElementById("open-doc").addEventListener("click", openOriginal);
+    const secondaryOpen = document.getElementById("open-doc-secondary");
+    if (secondaryOpen) secondaryOpen.addEventListener("click", openOriginal);
     const select = document.getElementById("indicator-select");
     if (select) {
       select.addEventListener("change", function () {
@@ -252,22 +260,42 @@ FL.documents = {
     }
   },
 
+  inlineFileUrl: function (doc) {
+    if (!doc.fileUrl) return "";
+    const join = doc.fileUrl.indexOf("?") >= 0 ? "&" : "?";
+    return doc.fileUrl + join + "disposition=inline";
+  },
+
+  bindJumpNav: function () {
+    document.querySelectorAll(".jump a[href^='#']").forEach(function (link) {
+      link.addEventListener("click", function (event) {
+        event.preventDefault();
+        const id = link.getAttribute("href").slice(1);
+        const target = document.getElementById(id);
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+  },
+
   originalFileHtml: function (doc) {
     if (!doc.fileUrl) {
       return `<div class="preview-page"><p class="note">Original file is not stored for this record. Use the extracted summary on the right.</p></div>`;
     }
     const lower = String(doc.fileName || "").toLowerCase();
     const mime = String(doc.mimeType || "").toLowerCase();
-    const isImage = mime.indexOf("image/") === 0 || /\.(png|jpe?g|gif|webp|bmp)$/.test(lower);
+    const inlineUrl = FL.esc(FL.documents.inlineFileUrl(doc));
+    const isImage = mime.indexOf("image/") === 0 || /\.(png|jpe?g|gif|webp|bmp|tif|tiff)$/.test(lower);
     const isPdf = mime.indexOf("pdf") >= 0 || /\.pdf$/.test(lower);
+    const downloadBtn = `<a class="btn btn-small btn-ghost" href="${FL.esc(doc.fileUrl)}" download="${FL.esc(doc.fileName || "document")}">Download file</a>`;
     if (isImage) {
-      return `<div class="original-file"><div class="original-file-frame original-file-frame--doc"><img src="${FL.esc(doc.fileUrl)}" alt="${FL.esc(doc.fileName || "Uploaded document")}"></div></div>`;
+      return `<div class="original-file"><div class="original-file-actions">${downloadBtn}</div><div class="original-file-frame original-file-frame--doc"><img src="${inlineUrl}" alt="${FL.esc(doc.fileName || "Uploaded document")}"></div></div>`;
     }
     if (isPdf) {
-      const src = FL.esc(doc.fileUrl) + "#toolbar=0&navpanes=0&scrollbar=1&view=FitH";
-      return `<div class="original-file"><div class="original-file-frame original-file-frame--doc"><iframe title="Original PDF" src="${src}"></iframe></div></div>`;
+      const src = inlineUrl + "#toolbar=0&navpanes=0&scrollbar=1&view=FitH";
+      return `<div class="original-file"><div class="original-file-actions">${downloadBtn}</div><div class="original-file-frame original-file-frame--doc"><iframe title="Original PDF preview" src="${src}"></iframe></div></div>`;
     }
-    return `<div class="original-file"><div class="preview-page"><p>This file type opens best in its native viewer.</p><p><a class="button" href="${FL.esc(doc.fileUrl)}" target="_blank" rel="noopener">Open original file</a></p></div></div>`;
+    const excerpt = (doc.extractedInfo && (doc.extractedInfo["OCR excerpt"] || doc.extractedInfo.OCR)) || (doc.ocr && doc.ocr.content) || "";
+    return `<div class="original-file"><div class="original-file-actions"><button class="btn btn-small btn-ghost" type="button" id="open-doc-secondary">Open in new tab</button>${downloadBtn}</div><div class="original-file-placeholder"><p class="note">Inline preview is not available for this file type. Use the extracted summary or open the original file.</p>${excerpt ? `<div class="ocr-content">${FL.esc(String(excerpt).slice(0, 1200))}</div>` : ""}</div></div>`;
   },
 
   ocrHtml: function (doc) {
@@ -286,11 +314,15 @@ FL.documents = {
       return `<div><dt>${FL.esc(key)}</dt><dd>${FL.esc(String(info[key]))}</dd></div>`;
     }).join("");
     const excerpt = (info["OCR excerpt"] || info.OCR || doc.ocr.content || "").trim();
+    const identityLabel = info["Identity field label"] || "Named party";
+    const identityValue = info["Extracted names"] || info["Extracted author(s)"] || (doc.ocr.authors && doc.ocr.authors.join(", ")) || "";
+    const identityStatus = info["Identity verification"] || "";
     return `
       <dl class="facts compact ocr-facts">
         <div><dt>Title</dt><dd>${doc.ocr.title ? FL.esc(doc.ocr.title) : FL.ui.badge("invalid", "Missing")}</dd></div>
-        <div><dt>Author(s)</dt><dd>${doc.ocr.authors && doc.ocr.authors.length ? FL.esc(doc.ocr.authors.join(", ")) : FL.ui.badge("invalid", "Missing")}</dd></div>
-        <div><dt>Submitted</dt><dd>${doc.ocr.date ? FL.esc(FL.formatWhen(doc.ocr.date)) : "—"}</dd></div>
+        <div><dt>${FL.esc(identityLabel)}</dt><dd>${identityValue ? FL.esc(String(identityValue)) : FL.ui.badge("invalid", "Not extracted")}</dd></div>
+        <div><dt>Date / period</dt><dd>${info["Extracted date"] || doc.ocr.date ? FL.esc(String(info["Extracted date"] || doc.ocr.date)) : "—"}</dd></div>
+        ${identityStatus ? `<div><dt>Identity check</dt><dd>${FL.esc(String(identityStatus))}</dd></div>` : ""}
       </dl>
       ${fieldRows ? `<h3 class="block-label">Scoring snapshot</h3><dl class="facts compact ocr-facts">${fieldRows}</dl>` : ""}
       <h3 class="block-label">Text excerpt</h3>

@@ -441,6 +441,7 @@ def create_document(user):
     file_size = saved_path.stat().st_size if saved_path.exists() else None
 
     existing = Document.query.filter_by(user_id=user.id).all()
+    uploader_name = user.profile.full_name if user.profile else None
     processed = process_upload(
         title=title,
         author=author,
@@ -451,6 +452,7 @@ def create_document(user):
         rating=rating,
         config=load_active_kra_config(db),
         existing_docs=existing,
+        uploader_name=uploader_name,
     )
     if processed["file_hash"]:
         duplicate = Document.query.filter_by(
@@ -534,13 +536,21 @@ def download_document_file(public_id):
     if not file_path:
         return jsonify({"error": "Original file is not available."}), 404
     mime = doc.mime_type or mimetypes.guess_type(doc.file_name or str(file_path))[0] or "application/octet-stream"
-    return send_file(
+    disposition = (request.args.get("disposition") or "inline").strip().lower()
+    as_attachment = disposition == "attachment"
+    file_name = doc.file_name or file_path.name
+    if file_name.lower().endswith(".pdf"):
+        mime = "application/pdf"
+    response = send_file(
         file_path,
         mimetype=mime,
-        as_attachment=False,
-        download_name=doc.file_name or file_path.name,
+        as_attachment=as_attachment,
+        download_name=file_name,
         max_age=0,
     )
+    if not as_attachment:
+        response.headers["Content-Disposition"] = f'inline; filename="{file_name}"'
+    return response
 
 
 def _resolve_upload_path(stored: str | None) -> Path | None:
@@ -578,6 +588,7 @@ def reprocess_document(user, public_id):
         indicator_id=doc.indicator_id,
         config=load_active_kra_config(db),
         existing_docs=existing,
+        uploader_name=doc.owner.profile.full_name if doc.owner.profile else None,
     )
     doc.points = processed["points"]
     doc.extracted_info = processed["extracted_info"]

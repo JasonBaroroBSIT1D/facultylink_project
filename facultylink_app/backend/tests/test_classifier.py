@@ -19,6 +19,7 @@ def test_journal_fields_require_publication_metadata():
         title="Journal Article",
         author="Maria Santos",
         ocr_text="Peer-reviewed journal ISSN 1234-5678. Published 2024-03-15.",
+        indicator_id="kra2-a-journal-sole",
     )
     ok, reasons = validate_indicator_fields(
         "kra2-a-journal-sole",

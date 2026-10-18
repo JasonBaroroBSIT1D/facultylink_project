@@ -4,10 +4,11 @@ import pytest
 
 from document_validation import (
     extract_fields,
+    extract_named_parties,
     extract_rating,
     find_duplicate_accomplishment,
     validate_indicator_fields,
-    validate_scoring_inputs,
+    verify_identity,
 )
 from scoring import classify_kra, process_upload
 
@@ -30,6 +31,36 @@ def test_classify_kra_no_match_is_not_ambiguous():
 def test_extract_rating_from_set_summary():
     rating = extract_rating("Overall SET rating: 92 percent for AY 2024-2025")
     assert rating == 92.0
+
+
+def test_extract_faculty_name_from_set_document():
+    label, names = extract_named_parties(
+        ocr_text="Student Evaluation of Teachers\nFaculty Name: Maria Santos\nOverall SET rating: 90",
+        upload_author=None,
+        indicator_id="kra1-a-student",
+    )
+    assert label == "Faculty Name"
+    assert any("Maria Santos" in name for name in names)
+
+
+def test_extract_participant_name_from_certificate():
+    label, names = extract_named_parties(
+        ocr_text="Certificate of Participation\nParticipant Name: Jose Reyes\nDate: March 10, 2024",
+        upload_author=None,
+        indicator_id="kra4-a-training",
+    )
+    assert label == "Participant Name"
+    assert names[0] == "Jose Reyes"
+
+
+def test_identity_mismatch_flags_review():
+    ok, _, message = verify_identity(
+        "kra1-a-student",
+        uploader_name="Maria Santos",
+        named_parties=["Pedro Cruz"],
+    )
+    assert ok is False
+    assert "does not match" in message
 
 
 def test_validate_set_requires_rating_and_period():
@@ -91,7 +122,8 @@ def test_process_upload_pending_when_classification_weak(tmp_path: Path):
 def test_process_upload_auto_approves_set_with_rating(tmp_path: Path):
     path = tmp_path / "set.txt"
     path.write_text(
-        "Student Evaluation of Teachers (SET). Overall SET rating: 88. SY 2024-2025.",
+        "Student Evaluation of Teachers (SET).\nFaculty Name: Maria Santos\n"
+        "Overall SET rating: 88. SY 2024-2025.",
         encoding="utf-8",
     )
     result = process_upload(
@@ -100,6 +132,7 @@ def test_process_upload_auto_approves_set_with_rating(tmp_path: Path):
         file_path=str(path),
         declared_kra="instruction",
         criterion_id="kra1-a",
+        uploader_name="Maria Santos",
     )
     assert result["indicator_id"] == "kra1-a-student"
     assert result["status"] == "system_approved"

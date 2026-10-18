@@ -177,6 +177,7 @@ def process_upload(
     rating: float | None = None,
     config: dict | None = None,
     existing_docs=None,
+    uploader_name: str | None = None,
 ):
     from document_classifier import classify_within_criterion
     from document_validation import (
@@ -186,23 +187,29 @@ def process_upload(
         find_duplicate_accomplishment,
         validate_indicator_fields,
         validate_scoring_inputs,
+        verify_identity,
     )
     from kra_catalog import find_indicator
 
     text = extract_text(file_path)
     combined = " ".join(part for part in (title, author, text) if part)
     kra, ambiguous = classify_kra(combined, declared_kra)
-    fields = extract_fields(title=title, author=author, ocr_text=text)
-    authors = max(len(fields["authors"]), author_count(author))
-
+    provisional_authors = author_count(author)
     classification = classify_within_criterion(
         criterion_id,
         title=title,
         author=author,
         ocr_text=text,
-        authors_count=authors,
+        authors_count=provisional_authors,
     )
     resolved_indicator = indicator_id or classification.indicator_id
+    fields = extract_fields(
+        title=title,
+        author=author,
+        ocr_text=text,
+        indicator_id=resolved_indicator,
+    )
+    authors = max(len(fields.get("named_parties") or fields.get("authors") or []), author_count(author))
     indicator_meta = find_indicator(resolved_indicator)
     if indicator_meta and declared_kra and indicator_meta.get("mobileKey") != declared_kra:
         classification.reliable = False
@@ -246,6 +253,15 @@ def process_upload(
     if not auth_ok and auth_reason:
         review_reasons.append(auth_reason)
 
+    identity_name = (uploader_name or author or "").strip() or None
+    identity_ok, identity_label, identity_message = verify_identity(
+        resolved_indicator,
+        uploader_name=identity_name,
+        named_parties=fields.get("named_parties") or fields.get("authors") or [],
+    )
+    if not identity_ok:
+        review_reasons.append(identity_message)
+
     file_digest = file_hash(file_path)
     duplicate_of = find_duplicate_accomplishment(
         existing_docs,
@@ -279,6 +295,7 @@ def process_upload(
         and fields_ok
         and scoring_ok
         and auth_ok
+        and identity_ok
         and duplicate_of is None
         and contradiction is None
         and text.strip()
@@ -309,7 +326,11 @@ def process_upload(
         "Classification confidence": str(classification.confidence),
         "Author count": str(authors),
         "Extracted title": fields.get("title") or "",
-        "Extracted author(s)": "; ".join(fields.get("authors") or []),
+        "Identity field label": fields.get("identity_label") or identity_label,
+        "Identity mode": fields.get("identity_mode") or "",
+        "Extracted names": "; ".join(fields.get("named_parties") or fields.get("authors") or []),
+        "Extracted author(s)": "; ".join(fields.get("named_parties") or fields.get("authors") or []),
+        "Identity verification": identity_message,
         "Extracted date": fields.get("date") or "",
         "Extracted rating": str(effective_rating) if effective_rating is not None else "",
         "Base points": str(base),

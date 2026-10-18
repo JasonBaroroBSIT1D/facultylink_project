@@ -769,7 +769,11 @@ def document_record(row):
     size_label = f"{round(size / 1024, 1)} KB" if isinstance(size, (int, float)) and size else ("On file" if has_file else "Unavailable")
     excerpt = extracted_info.get("OCR excerpt") or text[:420]
     extracted_date = extracted_info.get("Extracted date") or submitted
-    extracted_authors = extracted_info.get("Extracted author(s)") or author
+    extracted_authors = (
+        extracted_info.get("Extracted names")
+        or extracted_info.get("Extracted author(s)")
+        or author
+    )
     record = {
         "id": row["public_id"],
         "facultyId": str(row["user_id"]),
@@ -1077,13 +1081,20 @@ def download_document_file(document_id):
     file_path = resolve_upload_path(path)
     if not file_path:
         return json_error("Original file is not available on the server.", 404)
-    return send_file(
+    disposition = (request.args.get("disposition") or "inline").strip().lower()
+    as_attachment = disposition == "attachment"
+    if name.lower().endswith(".pdf"):
+        mime = "application/pdf"
+    response = send_file(
         file_path,
         mimetype=mime,
-        as_attachment=False,
+        as_attachment=as_attachment,
         download_name=name,
         max_age=0,
     )
+    if not as_attachment:
+        response.headers["Content-Disposition"] = f'inline; filename="{name}"'
+    return response
 
 
 def resolve_upload_path(stored):

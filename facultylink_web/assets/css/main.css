@@ -582,42 +582,65 @@ table.data tr.is-selected { background: #f3fbfb; }
 .preview-clean { background: transparent; padding: 0; }
 .preview-page { background: white; min-height: 220px; padding: 22px; border: 1px solid var(--line); box-shadow: 0 8px 18px rgba(12, 35, 64, 0.06); }
 .preview-kicker { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.document-stage {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+}
 .document-stage .card-head { align-items: flex-start; }
 .document-stage .card-head .sub { margin: 4px 0 0; color: var(--muted); font-size: 0.86rem; }
-.original-file { display: grid; gap: 0; }
+#page .jump,
+#page .card,
+#page .split,
+#page > section.card {
+  position: relative;
+  z-index: 2;
+}
+.original-file { display: grid; gap: 8px; }
+.original-file-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
 .original-file-frame {
   background: white;
   border: 1px solid var(--line);
   border-radius: 10px;
-  overflow: auto;
-  min-height: 420px;
-  max-height: 70vh;
+  overflow: hidden;
+  min-height: 280px;
+  max-height: min(52vh, 560px);
+  position: relative;
+  contain: layout paint;
 }
 .original-file-frame--doc {
   border-radius: 14px;
-  min-height: 560px;
-  max-height: min(78vh, 820px);
-  overflow: hidden;
   box-shadow: 0 10px 24px rgba(12, 35, 64, 0.08);
 }
 .original-file-frame iframe,
+.original-file-frame object,
+.original-file-frame embed,
 .original-file-frame img {
   display: block;
   width: 100%;
-  min-height: 420px;
+  height: 100%;
+  min-height: 280px;
+  max-height: min(52vh, 560px);
   border: 0;
   background: #fff;
-}
-.original-file-frame--doc iframe,
-.original-file-frame--doc img {
-  min-height: 560px;
-  height: min(78vh, 820px);
 }
 .original-file-frame img {
   width: auto;
   max-width: 100%;
   min-height: 0;
   margin: 0 auto;
+  object-fit: contain;
+}
+.original-file-placeholder {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
 }
 .ocr-facts { margin-bottom: 4px; }
 .ocr-content {

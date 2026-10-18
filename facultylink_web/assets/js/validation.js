@@ -39,6 +39,7 @@ FL.validation = {
     const info = document.extractedInfo || {};
     const title = !!(ocr.title && String(ocr.title).trim()) || !!(info["Extracted title"] && String(info["Extracted title"]).trim());
     const author = (Array.isArray(ocr.authors) && ocr.authors.filter(Boolean).length > 0)
+      || !!(info["Extracted names"] && String(info["Extracted names"]).trim())
       || !!(info["Extracted author(s)"] && String(info["Extracted author(s)"]).trim());
     const date = !!(ocr.date && String(ocr.date).trim()) || !!(info["Extracted date"] && String(info["Extracted date"]).trim());
     return { title: title, author: author, date: date };
