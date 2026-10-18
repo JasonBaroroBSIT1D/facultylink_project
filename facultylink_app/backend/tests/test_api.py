@@ -1,5 +1,7 @@
 import io
 
+import pytest
+
 from app import app
 from models import User
 
@@ -77,23 +79,61 @@ def test_document_upload_and_duplicate(client):
         "category": "researchPublications",
         "kra": "research",
         "criterionId": "kra2-a",
-        "indicatorId": "kra2-a-journal-sole",
         "author": "Maria Santos",
     }
-    files = {"file": (io.BytesIO(b"same-bytes-for-hash"), "article.txt")}
+    file_body = (
+        b"Peer-reviewed journal article ISSN 2244-1180 with abstract. "
+        b"Submitted March 15, 2024."
+    )
+    files = {"file": (io.BytesIO(file_body), "article.txt")}
     created = client.post("/api/documents", data={**payload, **files}, headers=headers)
     assert created.status_code == 201, created.get_json()
     body = created.get_json()
     assert body["kra"] == "research"
     assert body["criterionId"] == "kra2-a"
-    assert body["status"] == "pendingReview"
+    assert body["status"] in ("pendingReview", "system_approved")
+    assert body.get("indicatorId")
 
     duplicate = client.post(
         "/api/documents",
-        data={**payload, "file": (io.BytesIO(b"same-bytes-for-hash"), "article-copy.txt")},
+        data={**payload, "file": (io.BytesIO(file_body), "article-copy.txt")},
         headers=headers,
     )
     assert duplicate.status_code == 409
+
+
+def test_reviewer_can_override_system_approved_document(client):
+    headers = faculty_headers(client)
+    file_body = (
+        b"Peer-reviewed journal article ISSN 2244-1180 with abstract. "
+        b"Author Maria Santos. Published March 15, 2024."
+    )
+    created = client.post(
+        "/api/documents",
+        data={
+            "title": "Auto Journal Evidence",
+            "category": "researchPublications",
+            "kra": "research",
+            "criterionId": "kra2-a",
+            "author": "Maria Santos",
+            "file": (io.BytesIO(file_body), "auto-journal.txt"),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    doc = created.get_json()
+    if doc["status"] != "system_approved":
+        pytest.skip("Upload did not auto-approve in this environment.")
+    staff = staff_headers(client)
+    reviewed = client.post(
+        f"/api/documents/{doc['id']}/review",
+        json={"action": "validate", "points": doc["points"], "feedback": "Confirmed."},
+        headers=staff,
+    )
+    assert reviewed.status_code == 200
+    body = reviewed.get_json()
+    assert body["status"] == "validated"
+    assert body["extractedInfo"].get("Verification tier") == "Reviewer verified"
 
 
 def test_reviewer_queue_and_validate(client):

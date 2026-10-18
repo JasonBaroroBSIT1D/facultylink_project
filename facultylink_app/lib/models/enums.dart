@@ -61,6 +61,7 @@ enum KraType {
 
 enum DocumentStatus {
   validated,
+  systemApproved,
   pendingReview,
   needsRevision,
   invalid,
@@ -70,6 +71,8 @@ enum DocumentStatus {
     switch (this) {
       case DocumentStatus.validated:
         return 'Validated';
+      case DocumentStatus.systemApproved:
+        return 'System Approved';
       case DocumentStatus.pendingReview:
         return 'Pending Review';
       case DocumentStatus.needsRevision:
@@ -85,6 +88,8 @@ enum DocumentStatus {
     switch (this) {
       case DocumentStatus.validated:
         return Icons.verified_rounded;
+      case DocumentStatus.systemApproved:
+        return Icons.auto_awesome_rounded;
       case DocumentStatus.pendingReview:
         return Icons.hourglass_top_rounded;
       case DocumentStatus.needsRevision:

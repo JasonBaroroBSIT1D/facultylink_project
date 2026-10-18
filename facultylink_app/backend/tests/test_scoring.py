@@ -22,7 +22,7 @@ def test_classify_research_from_journal_keywords():
 def test_classify_falls_back_when_unclear():
     kra, flagged = classify_kra("Untitled scan", fallback="instruction")
     assert kra == "instruction"
-    assert flagged is True
+    assert flagged is False
 
 
 def test_contribution_score_divides_by_author_count():

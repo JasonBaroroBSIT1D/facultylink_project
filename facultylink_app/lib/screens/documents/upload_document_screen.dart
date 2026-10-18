@@ -41,8 +41,6 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
   List<Map<String, dynamic>> _kras = [];
   String? _webKraId;
   String? _criterionId;
-  String? _indicatorId;
-  final _contributionController = TextEditingController();
   final List<_PendingUpload> _files = [];
   bool _loadingCatalog = true;
   double _progress = 0;
@@ -86,35 +84,10 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
     return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
-  Map<String, dynamic>? get _selectedIndicator {
-    for (final indicator in _indicators) {
-      if (indicator['id']?.toString() == _indicatorId) return indicator;
-    }
-    return null;
-  }
-
-  bool get _needsContribution => _selectedIndicator?['contribution'] == 'declared';
-
-  List<Map<String, dynamic>> get _indicators {
-    final criterion = _criteria.cast<Map<String, dynamic>?>().firstWhere(
-          (c) => c?['id'] == _criterionId,
-          orElse: () => null,
-        );
-    final list = criterion?['indicators'];
-    if (list is! List) return [];
-    return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
-  }
-
   @override
   void initState() {
     super.initState();
     _loadCatalog();
-  }
-
-  @override
-  void dispose() {
-    _contributionController.dispose();
-    super.dispose();
   }
 
   Future<void> _loadCatalog() async {
@@ -239,19 +212,6 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
       showAppSnackBar(context, 'Select a KRA and criterion.', error: true);
       return;
     }
-    if (_indicators.isNotEmpty && (_indicatorId == null || _indicatorId!.isEmpty)) {
-      showAppSnackBar(context, 'Select an indicator under the chosen criterion.', error: true);
-      return;
-    }
-    double? contributionPercent;
-    if (_needsContribution) {
-      contributionPercent = double.tryParse(_contributionController.text.trim());
-      if (contributionPercent == null || contributionPercent < 0 || contributionPercent > 100) {
-        showAppSnackBar(context, 'Enter your contribution share from 0 to 100.', error: true);
-        return;
-      }
-    }
-
     final total = _files.length;
     setState(() {
       _phase = _UploadPhase.processing;
@@ -274,8 +234,6 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
           kra: _mobileKra,
           fileName: file.fileName,
           criterionId: _criterionId,
-          indicatorId: _indicatorId,
-          contributionPercent: contributionPercent,
           fileBytes: file.bytes,
         );
         _uploadedCount = i + 1;
@@ -312,7 +270,6 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
     setState(() {
       _phase = _UploadPhase.form;
       _files.clear();
-      _indicatorId = null;
       _progress = 0;
       _progressLabel = '';
       _uploadedCount = 0;
@@ -346,7 +303,7 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Each file is saved under the selected KRA and criterion, then queued for reviewer validation.',
+                  'Each file is saved under the selected KRA and criterion. OCR and validation run automatically; some documents may be system-approved or queued for review.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppColors.textSecondary, height: 1.45),
                 ),
@@ -370,7 +327,7 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
         children: [
           const InfoBanner(
             message:
-                'Choose the KRA and criterion first, then attach one or more files. Each document title is taken from its filename. Reviewers still verify scores before they count.',
+                'Choose the KRA and criterion, then attach one or more files. Titles come from filenames. FacultyLink identifies the indicator from OCR; reviewers can correct it later.',
           ),
           const SizedBox(height: 18),
           DropdownButtonFormField<String>(
@@ -391,7 +348,6 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
               setState(() {
                 _webKraId = value;
                 _criterionId = null;
-                _indicatorId = null;
               });
             },
             validator: (value) => value == null ? 'Select a KRA' : null,
@@ -413,52 +369,9 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
             ],
             onChanged: _webKraId == null
                 ? null
-                : (value) {
-                    setState(() {
-                      _criterionId = value;
-                      _indicatorId = null;
-                    });
-                  },
+                : (value) => setState(() => _criterionId = value),
             validator: (value) => value == null ? 'Select a criterion' : null,
           ),
-          if (_indicators.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            DropdownButtonFormField<String>(
-              initialValue: _indicatorId,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Select Indicator *'),
-              items: [
-                for (final indicator in _indicators)
-                  DropdownMenuItem(
-                    value: indicator['id']?.toString(),
-                    child: Text(
-                      indicator['name']?.toString() ?? '',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-              ],
-              onChanged: (value) => setState(() => _indicatorId = value),
-              validator: (value) => value == null ? 'Select an indicator' : null,
-            ),
-            if (_needsContribution) ...[
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _contributionController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                  labelText: 'Your contribution share (%) *',
-                  helperText: 'Points = indicator base points × this percentage.',
-                ),
-                validator: (value) {
-                  final parsed = double.tryParse((value ?? '').trim());
-                  if (parsed == null || parsed < 0 || parsed > 100) {
-                    return 'Enter a share from 0 to 100';
-                  }
-                  return null;
-                },
-              ),
-            ],
-          ],
           const SizedBox(height: 18),
           Text(
             _files.isEmpty ? 'Upload documents' : 'Selected files (${_files.length})',

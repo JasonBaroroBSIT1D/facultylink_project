@@ -45,6 +45,7 @@ FL.ui = {
   statusBadge: function (status) {
     const map = {
       approved: ["valid", "Approved"],
+      "system-approved": ["valid", "System approved"],
       valid: ["valid", "Valid"],
       "pending-review": ["pending", "Pending review"],
       revision: ["revision", "Revision requested"],

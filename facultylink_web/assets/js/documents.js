@@ -56,6 +56,7 @@ FL.documents = {
             <option value="reviewer-required">Reviewer validation required</option>
             <option value="invalid">Invalid</option>
             <option value="revision">Revision requested</option>
+            <option value="system-approved">System approved</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
             <option value="ignored-duplicate">Duplicate ignored</option>
@@ -300,13 +301,18 @@ FL.documents = {
     const detected = validation.classification.detected;
     const kra = detected ? FL.rules.findKra(detected.kraId) : null;
     let status = validation.classification.status;
+    const autoName = doc.extractedInfo && doc.extractedInfo["Automatically identified indicator"];
+    const autoBlock = autoName
+      ? `<dl class="facts compact"><div><dt>Automatically identified indicator</dt><dd>${FL.esc(autoName)}</dd></div></dl>`
+      : "";
     const rows = FL.rules.kras.map(function (item) {
       const rule = FL.rules.classification.find(function (entry) { return entry.kraId === item.id; });
       return { kra: item, rule: rule };
     });
     return `
       <div class="card-head"><h2>KRA classification</h2>${FL.ui.statusBadge(status === "pending" ? "pending" : status)}</div>
-      <p>Official KRA order is KRA I Instruction, KRA II Research, KRA III Extension, and KRA IV Professional Development. The keyword table below only decides which KRA is suggested when OCR text matches more than one rule. That tie-break order is not the official KRA number. A document that cannot be classified is sent to the reviewer.</p>
+      ${autoBlock}
+      <p>Faculty select only the KRA and criterion at upload. FacultyLink uses OCR and DBM–CHED rules to identify the indicator within that criterion. The keyword table below only suggests a KRA when OCR text matches more than one rule.</p>
       <dl class="facts compact">
         <div><dt>Detected KRA</dt><dd>${kra ? FL.esc(kra.code + " — " + kra.name) : "None"}</dd></div>
         <div><dt>Classification status</dt><dd>${FL.esc(status === "classified" ? "Classified" : status === "priority" ? "Keyword tie-break applied" : status === "unclassified" ? "Cannot classify" : "Waiting for OCR")}</dd></div>
@@ -332,17 +338,22 @@ FL.documents = {
         }).join("");
       }).join("")}</optgroup>`;
     }).join("");
+    const autoName = doc.extractedInfo && doc.extractedInfo["Automatically identified indicator"];
+    const autoNote = autoName
+      ? `<p class="note">Automatically identified: ${FL.esc(autoName)}. Reviewers may correct the indicator before accepting.</p>`
+      : "";
     const picker = canDecide ? `
-      <label class="field"><span>Match an Annex I indicator</span>
+      <label class="field"><span>Match or correct Annex I indicator</span>
         <select id="indicator-select"><option value="">Not matched</option>${options}</select>
       </label>` : "";
     if (!scored.indicator) {
-      return `<div class="card-head"><h2>Applicable DBM–CHED rule</h2></div>${picker}<div class="alert alert-warning">No Annex I indicator is matched. The reviewer matches the documentary evidence to a criterion before points are assigned.</div>`;
+      return `<div class="card-head"><h2>Applicable DBM–CHED rule</h2></div>${autoNote}${picker}<div class="alert alert-warning">No Annex I indicator is matched. The reviewer matches the documentary evidence to a criterion before points are assigned.</div>`;
     }
     const indicator = scored.indicator;
     const points = indicator.pointsLabel || (indicator.points == null ? "—" : String(indicator.points));
     return `
       <div class="card-head"><h2>Applicable DBM–CHED rule</h2></div>
+      ${autoNote}
       ${picker}
       <dl class="facts">
         <div><dt>KRA</dt><dd>${FL.esc(scored.kra.code + " — " + scored.kra.name)}</dd></div>

@@ -33,6 +33,7 @@ KRA_INDICATORS = {
 }
 STATUS_TO_WEB = {
     "validated": "approved",
+    "system_approved": "system-approved",
     "pendingReview": "pending-review",
     "needsRevision": "revision",
     "rejected": "rejected",
@@ -767,6 +768,8 @@ def document_record(row):
     has_file = bool(row.get("file_path"))
     size_label = f"{round(size / 1024, 1)} KB" if isinstance(size, (int, float)) and size else ("On file" if has_file else "Unavailable")
     excerpt = extracted_info.get("OCR excerpt") or text[:420]
+    extracted_date = extracted_info.get("Extracted date") or submitted
+    extracted_authors = extracted_info.get("Extracted author(s)") or author
     record = {
         "id": row["public_id"],
         "facultyId": str(row["user_id"]),
@@ -776,7 +779,7 @@ def document_record(row):
         "fileSize": size_label,
         "mimeType": mime,
         "pages": 1,
-        "indicatorId": stored_indicator or KRA_INDICATORS.get(kra),
+        "indicatorId": stored_indicator or "",
         "criterionId": stored_criterion,
         "kraId": KRA_IDS.get(kra, ""),
         "hasFile": has_file,
@@ -792,8 +795,10 @@ def document_record(row):
             "status": "completed",
             "confidence": 0.9,
             "title": row["title"],
-            "authors": [part.strip() for part in author.split(";") if part.strip()] or ["Faculty"],
-            "date": submitted,
+            "authors": [part.strip() for part in extracted_authors.split(";") if part.strip()]
+            or [part.strip() for part in author.split(";") if part.strip()]
+            or (["Faculty"] if author else []),
+            "date": extracted_date or submitted,
             "content": excerpt or row["validation_result"] or "",
         },
         "feedback": row["reviewer_feedback"] or "",

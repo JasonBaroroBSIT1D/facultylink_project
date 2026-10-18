@@ -161,6 +161,7 @@ def apply_review(
     if indicator_id:
         doc.indicator_id = indicator_id
     if action in {"validate", "correct"}:
+        prior_status = doc.status
         awarded = _award_points(doc, points, contribution_percent, rating)
         doc.status = "validated"
         doc.points = int(round(awarded))
@@ -173,6 +174,9 @@ def apply_review(
         )
         info = dict(doc.extracted_info or {})
         info["Verified score"] = str(awarded)
+        info["Verification tier"] = "Reviewer verified"
+        if prior_status == "system_approved":
+            info["Prior approval"] = "System approved before reviewer confirmation."
         if contribution_percent not in (None, ""):
             info["Contribution percent"] = str(contribution_percent)
         doc.extracted_info = info
@@ -395,19 +399,16 @@ def create_document(user):
     category = request.form.get("category") or "supportingEvidence"
     kra = request.form.get("kra") or "instruction"
     author = (request.form.get("author") or "").strip()
-    indicator_id = (request.form.get("indicatorId") or "").strip() or None
     criterion_id = (request.form.get("criterionId") or "").strip() or None
     uploaded = request.files.get("file")
     if not uploaded or not uploaded.filename:
         return jsonify({"error": "A document file is required."}), 400
+    if not criterion_id:
+        return jsonify({"error": "Criterion is required."}), 400
 
-    ok, message = validate_selection(
-        kra=kra, criterion_id=criterion_id, indicator_id=indicator_id
-    )
+    ok, message = validate_selection(kra=kra, criterion_id=criterion_id, indicator_id=None)
     if not ok:
         return jsonify({"error": message}), 400
-    if indicator_id and not criterion_id:
-        criterion_id = criterion_for_indicator(indicator_id)
 
     contribution_raw = (request.form.get("contributionPercent") or "").strip()
     rating_raw = (request.form.get("rating") or "").strip()
@@ -439,16 +440,17 @@ def create_document(user):
     mime_type = uploaded.mimetype or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
     file_size = saved_path.stat().st_size if saved_path.exists() else None
 
-    # Keep faculty-selected KRA; OCR still assists reviewer validation.
+    existing = Document.query.filter_by(user_id=user.id).all()
     processed = process_upload(
         title=title,
         author=author,
         file_path=str(saved_path),
         declared_kra=kra,
-        indicator_id=indicator_id,
+        criterion_id=criterion_id,
         contribution_percent=contribution_percent,
         rating=rating,
         config=load_active_kra_config(db),
+        existing_docs=existing,
     )
     if processed["file_hash"]:
         duplicate = Document.query.filter_by(
@@ -480,8 +482,8 @@ def create_document(user):
         author_count=processed["author_count"],
         base_points=int(round(processed["base_points"] or 0)),
         flagged_for_review=processed["flagged_for_review"],
-        indicator_id=indicator_id,
-        criterion_id=criterion_id,
+        indicator_id=processed["indicator_id"],
+        criterion_id=criterion_id or processed.get("criterion_id"),
         mime_type=mime_type,
         file_size=file_size,
     )
@@ -489,7 +491,11 @@ def create_document(user):
     add_notification(
         user.id,
         "documentSubmitted",
-        f"{title} was submitted and is pending review.",
+        (
+            f"{title} was system-approved after OCR validation (+{doc.points} points)."
+            if doc.status == "system_approved"
+            else f"{title} was submitted and is pending review."
+        ),
         document_id=doc.public_id,
         kra=doc.kra,
     )
@@ -562,13 +568,16 @@ def reprocess_document(user, public_id):
     doc = Document.query.filter_by(user_id=user.id, public_id=public_id).first()
     if not doc:
         return jsonify({"error": "Document not found."}), 404
+    existing = Document.query.filter_by(user_id=user.id).filter(Document.public_id != doc.public_id).all()
     processed = process_upload(
         title=doc.title,
         author=doc.author,
         file_path=doc.file_path,
         declared_kra=doc.kra,
+        criterion_id=doc.criterion_id,
         indicator_id=doc.indicator_id,
         config=load_active_kra_config(db),
+        existing_docs=existing,
     )
     doc.points = processed["points"]
     doc.extracted_info = processed["extracted_info"]
@@ -576,7 +585,9 @@ def reprocess_document(user, public_id):
     doc.file_hash = processed["file_hash"] or doc.file_hash
     doc.flagged_for_review = processed["flagged_for_review"]
     doc.validation_result = processed["validation_result"]
-    doc.status = "pendingReview"
+    doc.indicator_id = processed.get("indicator_id") or doc.indicator_id
+    doc.status = processed["status"]
+    doc.points = processed["points"]
     write_audit(user.email, "reprocess_document", doc.public_id)
     sync_user_scores(user)
     db.session.commit()
@@ -690,7 +701,11 @@ def staff_login():
 @staff_jwt_required
 def review_queue_api(user):
     queue = (
-        Document.query.filter(Document.status.in_(["pendingReview", "processing", "needsRevision"]))
+        Document.query.filter(
+            Document.status.in_(
+                ["pendingReview", "processing", "needsRevision", "system_approved"]
+            )
+        )
         .order_by(Document.submitted_at.desc())
         .all()
     )
@@ -726,6 +741,7 @@ def review_document_api(user, public_id):
     ):
         return jsonify({"error": "Action must be validate, correct, revise, reject, or reopen."}), 400
     write_audit(user.email, f"review_{action}", doc.public_id)
+    sync_user_scores(doc.owner)
     db.session.commit()
     return jsonify(doc.to_dict())
 

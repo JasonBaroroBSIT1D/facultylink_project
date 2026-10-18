@@ -112,7 +112,8 @@ FL.scoring = {
         basePoints: document.databasePoints,
         contributionPercent: 100,
         finalScore: document.databasePoints,
-        countable: document.status === "approved" && validation.duplicateStatus !== "duplicate",
+        countable: (document.status === "approved" || document.status === "system-approved")
+          && validation.duplicateStatus !== "duplicate",
         rows: (document.contribution || []).map(function (row) {
           return { author: row.author, percent: row.percent, subject: !!row.subject, computed: document.databasePoints };
         }),
@@ -176,6 +177,30 @@ FL.scoring = {
     const provisionalByIndicator = {};
 
     documents.forEach(function (doc) {
+      if (
+        doc.status === "system-approved"
+        && typeof doc.databasePoints === "number"
+        && doc.indicatorId
+      ) {
+        const found = FL.rules.findIndicator(doc.indicatorId);
+        if (found) {
+          const indicatorKey = doc.indicatorId;
+          const review = {
+            indicatorId: doc.indicatorId,
+            kraId: found.kra.id,
+            criterionId: found.criterion.id,
+            finalScore: doc.databasePoints,
+            assignedScore: doc.databasePoints,
+            contributionPercent: 100,
+            officialMax: found.indicator.maxPoints
+          };
+          const current = bestByIndicator[indicatorKey];
+          if (!current || review.finalScore > current.review.finalScore) {
+            bestByIndicator[indicatorKey] = { doc: doc, review: review };
+          }
+        }
+        return;
+      }
       if (doc.review && typeof doc.review.finalScore === "number" && doc.status === "approved") {
         const review = doc.review;
         const indicatorKey = review.indicatorId || doc.indicatorId || doc.id;

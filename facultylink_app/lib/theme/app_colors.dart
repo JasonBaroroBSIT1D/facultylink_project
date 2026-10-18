@@ -74,6 +74,8 @@ abstract final class AppColors {
     switch (status) {
       case DocumentStatus.validated:
         return success;
+      case DocumentStatus.systemApproved:
+        return success;
       case DocumentStatus.pendingReview:
         return warning;
       case DocumentStatus.needsRevision:
@@ -88,6 +90,8 @@ abstract final class AppColors {
   static Color statusSoft(DocumentStatus status) {
     switch (status) {
       case DocumentStatus.validated:
+        return successSoft;
+      case DocumentStatus.systemApproved:
         return successSoft;
       case DocumentStatus.pendingReview:
         return warningSoft;

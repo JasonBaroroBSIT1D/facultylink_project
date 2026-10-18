@@ -187,8 +187,18 @@ class _DocumentDetailsBody extends StatelessWidget {
                 _FactRow(label: 'KRA', value: document.kra.label),
                 if (document.criterionId != null)
                   _FactRow(label: 'Criterion', value: document.criterionId!),
-                if (document.indicatorId != null)
+                if (document.extractedInfo['Automatically identified indicator']?.isNotEmpty == true)
+                  _FactRow(
+                    label: 'Identified indicator',
+                    value: document.extractedInfo['Automatically identified indicator']!,
+                  )
+                else if (document.indicatorId != null)
                   _FactRow(label: 'Indicator', value: document.indicatorId!),
+                if (document.extractedInfo['Verification tier']?.isNotEmpty == true)
+                  _FactRow(
+                    label: 'Verification',
+                    value: document.extractedInfo['Verification tier']!,
+                  ),
                 _FactRow(
                   label: 'File',
                   value: document.hasFile ? 'On file' : 'Unavailable',

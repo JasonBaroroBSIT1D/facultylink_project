@@ -15,7 +15,7 @@ from kra_config import (
 )
 from ocr import extract_text
 
-VERIFIED_STATUSES = {"validated", "approved"}
+VERIFIED_STATUSES = {"validated", "approved", "system_approved"}
 PROVISIONAL_STATUSES = {"pendingReview", "pending-review", "processing"}
 
 # Fallback targets when kra_settings is unavailable (JC No. 01, s. 2026 maxima).
@@ -64,7 +64,7 @@ def classify_kra(text: str, fallback: str | None = None) -> tuple[str, bool]:
         if any(keyword in haystack for keyword in keywords):
             matches.append((priority, kra))
     if not matches:
-        return fallback or "instruction", True
+        return fallback or "instruction", False
     matches.sort()
     return matches[0][1], len(matches) > 1
 
@@ -171,19 +171,50 @@ def process_upload(
     author: str | None,
     file_path: str | None,
     declared_kra: str | None,
+    criterion_id: str | None = None,
     indicator_id: str | None = None,
     contribution_percent: float | None = None,
     rating: float | None = None,
     config: dict | None = None,
+    existing_docs=None,
 ):
+    from document_classifier import classify_within_criterion
+    from document_validation import (
+        authorship_consistent,
+        detect_criterion_contradiction,
+        extract_fields,
+        find_duplicate_accomplishment,
+        validate_indicator_fields,
+        validate_scoring_inputs,
+    )
+    from kra_catalog import find_indicator
+
     text = extract_text(file_path)
     combined = " ".join(part for part in (title, author, text) if part)
     kra, ambiguous = classify_kra(combined, declared_kra)
-    authors = author_count(author)
+    fields = extract_fields(title=title, author=author, ocr_text=text)
+    authors = max(len(fields["authors"]), author_count(author))
+
+    classification = classify_within_criterion(
+        criterion_id,
+        title=title,
+        author=author,
+        ocr_text=text,
+        authors_count=authors,
+    )
+    resolved_indicator = indicator_id or classification.indicator_id
+    indicator_meta = find_indicator(resolved_indicator)
+    if indicator_meta and declared_kra and indicator_meta.get("mobileKey") != declared_kra:
+        classification.reliable = False
+        classification.reasons.append("The identified indicator does not belong to the selected KRA.")
+
+    extracted_rating = fields.get("rating")
+    effective_rating = rating if rating is not None else extracted_rating
+
     scored = score_indicator(
-        indicator_id,
+        resolved_indicator,
         contribution_percent=contribution_percent,
-        rating=rating,
+        rating=effective_rating,
         authors=authors,
         config=config,
     )
@@ -195,34 +226,120 @@ def process_upload(
         base = KRA_BASE_POINTS.get(kra, 5)
         percent = round(100.0 / max(authors, 1), 2)
         points = final_score(base, percent)
+
+    review_reasons: list[str] = list(classification.reasons)
+    fields_ok, field_reasons = validate_indicator_fields(
+        resolved_indicator, fields, ocr_text=text
+    )
+    review_reasons.extend(field_reasons)
+
+    scoring_ok, scoring_reasons = validate_scoring_inputs(
+        resolved_indicator,
+        rating=effective_rating,
+        contribution_percent=contribution_percent,
+    )
+    review_reasons.extend(scoring_reasons)
+
+    auth_ok, auth_reason = authorship_consistent(
+        resolved_indicator, authors, contribution_percent
+    )
+    if not auth_ok and auth_reason:
+        review_reasons.append(auth_reason)
+
+    file_digest = file_hash(file_path)
+    duplicate_of = find_duplicate_accomplishment(
+        existing_docs,
+        indicator_id=resolved_indicator,
+        title=title,
+        file_hash=file_digest,
+    )
+    if duplicate_of:
+        review_reasons.append(
+            f"Potential duplicate of document {duplicate_of} (same file or accomplishment)."
+        )
+
+    contradiction = detect_criterion_contradiction(
+        declared_kra=declared_kra,
+        criterion_id=criterion_id,
+        resolved_indicator_id=resolved_indicator,
+        haystack=combined,
+    )
+    if contradiction:
+        review_reasons.append(contradiction)
+
+    if ambiguous:
+        review_reasons.append("Extracted text matches more than one auxiliary KRA keyword rule.")
+    if not text.strip():
+        review_reasons.append("OCR did not extract readable text from the file.")
+
+    auto_approve = (
+        bool(criterion_id)
+        and classification.reliable
+        and bool(resolved_indicator)
+        and fields_ok
+        and scoring_ok
+        and auth_ok
+        and duplicate_of is None
+        and contradiction is None
+        and text.strip()
+        and scored["matched"]
+        and scored["base_points"] is not None
+        and not scored.get("flagged")
+    )
+
+    status = "system_approved" if auto_approve else "pendingReview"
+    primary_reason = review_reasons[0] if review_reasons else "Reviewer validation required."
+    validation = (
+        "System approved after OCR, indicator classification, and field validation."
+        if auto_approve
+        else primary_reason
+    )
+    if len(validation) > 250:
+        validation = validation[:247] + "..."
+
     extracted = {
-        "Document type": "Uploaded documentary evidence",
+        "Document type": indicator_meta["indicator"]["name"]
+        if indicator_meta
+        else "Uploaded documentary evidence",
         "Assigned KRA": declared_kra or kra,
         "Detected KRA": kra,
-        "Indicator": indicator_id or "",
+        "Criterion": criterion_id or "",
+        "Automatically identified indicator": classification.indicator_name or "",
+        "Identified indicator ID": resolved_indicator or "",
+        "Classification confidence": str(classification.confidence),
         "Author count": str(authors),
+        "Extracted title": fields.get("title") or "",
+        "Extracted author(s)": "; ".join(fields.get("authors") or []),
+        "Extracted date": fields.get("date") or "",
+        "Extracted rating": str(effective_rating) if effective_rating is not None else "",
         "Base points": str(base),
         "Contribution percent": str(percent),
         "Scoring formula": SCORING_FORMULA,
         "Provisional score": str(points),
         "Contribution score": str(points),
     }
+    if classification.candidates:
+        extracted["Classification candidates"] = ", ".join(
+            f"{item['name']} ({item['score']})" for item in classification.candidates[:3]
+        )
     if text.strip():
         extracted["OCR excerpt"] = text.strip()[:280]
     else:
-        extracted["OCR"] = "Tesseract was not available or the file had no readable text. Keyword rules used the title and author."
+        extracted["OCR"] = (
+            "Tesseract was not available or the file had no readable text. "
+            "Automatic approval requires OCR extraction."
+        )
     if scored.get("note"):
         extracted["Scoring note"] = scored["note"]
+    if review_reasons and not auto_approve:
+        extracted["Review reasons"] = "; ".join(dict.fromkeys(review_reasons))
+    extracted["Verification tier"] = "System approved" if auto_approve else "Pending review"
 
     missing_title = not title
-    flagged = missing_title or ambiguous or not text.strip() or bool(scored.get("flagged"))
-    validation = (
-        "Flagged for reviewer validation."
-        if flagged
-        else "Provisional score is ready for the faculty member to review. Awaiting reviewer confirmation."
-    )
     return {
         "kra": kra,
+        "criterion_id": criterion_id,
+        "indicator_id": resolved_indicator,
         "author_count": authors,
         "base_points": base,
         "contribution_percent": percent,
@@ -231,9 +348,10 @@ def process_upload(
         "extracted_info": extracted,
         "extracted_text": text,
         "file_hash": file_hash(file_path),
-        "flagged_for_review": True,
-        "status": "pendingReview",
+        "flagged_for_review": not auto_approve,
+        "status": status,
         "validation_result": validation,
+        "auto_approved": auto_approve,
     }
 
 
