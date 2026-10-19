@@ -120,6 +120,10 @@ FL.store = {
     });
   },
 
+  reissueFacultyCredentials: function (facultyId) {
+    return FL.api.send("POST", "/api/faculty/" + encodeURIComponent(facultyId) + "/credentials");
+  },
+
   removeFaculty: function (facultyId) {
     const store = this;
     return FL.api.send("DELETE", "/api/faculty/" + encodeURIComponent(facultyId)).then(function (data) {

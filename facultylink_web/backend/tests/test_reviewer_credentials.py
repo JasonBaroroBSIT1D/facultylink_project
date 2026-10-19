@@ -366,6 +366,50 @@ def test_manual_password_is_emailed_but_not_returned(monkeypatch):
         _cleanup(webapp, email)
 
 
+def test_faculty_account_email_and_must_change(monkeypatch):
+    webapp = _load_web()
+    conn = webapp.connect()
+    admin = conn.execute("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").fetchone()
+    conn.close()
+    if not admin:
+        pytest.skip("No administrator account is available.")
+
+    email = f"faculty-cred-{uuid.uuid4().hex[:10]}@example.edu"
+    captured = {}
+
+    def capture(_config, name, address, password):
+        captured["name"] = name
+        captured["email"] = address
+        captured["password"] = password
+
+    monkeypatch.setattr(webapp.reviewer_credentials, "deliver_faculty_credentials", capture)
+    client = webapp.app.test_client()
+    try:
+        with client.session_transaction() as sess:
+            sess["user_id"] = admin["id"]
+        created = client.post(
+            "/api/faculty",
+            json={
+                "fullName": "Test Faculty",
+                "email": email,
+                "department": "Education",
+                "password": "",
+            },
+        )
+        body = created.get_json()
+        assert created.status_code == 201
+        assert body["emailSent"] is True
+        assert "temporaryPassword" not in body
+        assert "mobile app" not in json.dumps(body)
+        conn = webapp.connect()
+        stored = conn.execute("SELECT must_change_password FROM users WHERE lower(email) = %s", (email,)).fetchone()
+        conn.close()
+        assert stored["must_change_password"] is True
+        assert captured["email"] == email
+    finally:
+        _cleanup(webapp, email)
+
+
 def test_email_failure_keeps_the_account_and_hides_the_password(monkeypatch):
     webapp = _load_web()
     conn = webapp.connect()

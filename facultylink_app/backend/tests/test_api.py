@@ -2,7 +2,7 @@ import io
 
 import pytest
 
-from app import app
+from app import app, db
 from models import User
 
 
@@ -34,6 +34,42 @@ def test_faculty_login_and_profile(client):
     me = client.get("/api/me", headers=headers)
     assert me.status_code == 200
     assert me.get_json()["fullName"] == "Maria Santos"
+
+
+def test_faculty_must_change_password_before_normal_access(client):
+    email = "maria.santos@university.edu.ph"
+    with app.app_context():
+        user = User.query.filter_by(email=email).first()
+        user.must_change_password = True
+        db.session.commit()
+    try:
+        login = client.post(
+            "/api/auth/login",
+            json={"email": email, "password": "password123"},
+        )
+        body = login.get_json()
+        assert login.status_code == 200
+        assert body["mustChangePassword"] is True
+        headers = {"Authorization": f"Bearer {body['accessToken']}"}
+        blocked = client.get("/api/me", headers=headers)
+        assert blocked.status_code == 403
+        assert blocked.get_json()["mustChangePassword"] is True
+        changed = client.post(
+            "/api/auth/change-password",
+            headers=headers,
+            json={
+                "currentPassword": "password123",
+                "newPassword": "Replacement-Pass-1",
+            },
+        )
+        assert changed.status_code == 200
+        assert client.get("/api/me", headers=headers).status_code == 200
+    finally:
+        with app.app_context():
+            user = User.query.filter_by(email=email).first()
+            user.set_password("password123")
+            user.must_change_password = False
+            db.session.commit()
 
 
 def test_faculty_read_apis(client):

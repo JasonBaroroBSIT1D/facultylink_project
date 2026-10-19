@@ -39,6 +39,7 @@ class AppState extends ChangeNotifier {
   List<RequirementItem>? _requirements;
   PreparationPeriod? _preparationPeriod;
   bool usingApi = false;
+  bool mustChangePassword = false;
 
   int mainTabIndex = 0;
   int assessmentTabIndex = 0;
@@ -117,8 +118,23 @@ class AppState extends ChangeNotifier {
   Future<void> login(String email, String password) async {
     final data = await api.login(email, password);
     usingApi = true;
+    mustChangePassword = data['mustChangePassword'] == true;
     await _tokenStorage.write(key: 'accessToken', value: api.accessToken);
     faculty = profileFromJson(data['profile'] as Map<String, dynamic>);
+    if (!mustChangePassword) {
+      await refreshFromApi();
+    }
+  }
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await api.changePassword(
+      currentPassword: currentPassword,
+      newPassword: newPassword,
+    );
+    mustChangePassword = false;
     await refreshFromApi();
   }
 

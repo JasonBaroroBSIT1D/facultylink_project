@@ -1554,10 +1554,15 @@ def create_faculty():
         years = int(payload.get("yearsInService") or 0)
     except (TypeError, ValueError):
         years = 0
-    password = str(payload.get("password") or "").strip() or _temp_password()
     if not email or not full_name or not department:
         conn.close()
         return json_error("Email, full name, and department are required.", 400)
+    password, password_error = reviewer_credentials.choose_password(
+        payload.get("password"), _temp_password
+    )
+    if password_error:
+        conn.close()
+        return json_error(password_error, 400)
     if conn.execute("SELECT id FROM users WHERE lower(email) = %s", (email,)).fetchone():
         conn.close()
         return json_error("That email is already registered.", 409)
@@ -1576,8 +1581,8 @@ def create_faculty():
             return json_error("Choose a valid reviewer.", 400)
     row = conn.execute(
         """
-        INSERT INTO users (email, password_hash, role, created_at)
-        VALUES (%s, %s, 'faculty', %s)
+        INSERT INTO users (email, password_hash, role, created_at, must_change_password)
+        VALUES (%s, %s, 'faculty', %s, TRUE)
         RETURNING id
         """,
         (email, generate_password_hash(password), datetime.now()),
@@ -1612,19 +1617,27 @@ def create_faculty():
         ),
     )
     ensure_faculty_mobile_defaults(conn, row["id"], current_rank)
+    email_sent, email_error = _email_faculty_credentials(full_name, email, password)
     conn.execute(
         "INSERT INTO audit_logs (actor_email, action, detail, created_at) VALUES (%s, %s, %s, %s)",
         (
             user["email"],
             "Added faculty",
-            f"Created faculty account {full_name} ({email}).",
+            (
+                f"Created faculty account {full_name} ({email}). Sign-in instructions were emailed."
+                if email_sent
+                else f"Created faculty account {full_name} ({email}). Sign-in email was not delivered."
+            ),
             datetime.now().isoformat(sep=" ", timespec="seconds"),
         ),
     )
     conn.commit()
     people = [person for person in faculty_records(conn) if person["id"] == str(row["id"])]
     conn.close()
-    return jsonify({"ok": True, "faculty": people[0] if people else None, "temporaryPassword": password}), 201
+    result = {"ok": True, "faculty": people[0] if people else None, "emailSent": email_sent}
+    if not email_sent:
+        result["emailError"] = email_error
+    return jsonify(result), 201
 
 
 @app.delete("/api/faculty/<faculty_id>")
@@ -1665,6 +1678,19 @@ def remove_faculty(faculty_id):
     return jsonify({"ok": True})
 
 
+def _email_faculty_credentials(name, email, password):
+    try:
+        reviewer_credentials.deliver_faculty_credentials(
+            reviewer_credentials.smtp_settings(),
+            name,
+            email,
+            password,
+        )
+    except (reviewer_credentials.EmailNotConfigured, reviewer_credentials.EmailDeliveryError) as error:
+        return False, reviewer_credentials.faculty_email_failure_message(error, account_created=True)
+    return True, ""
+
+
 def _email_reviewer_credentials(name, email, password):
     """Email the temporary password. The plaintext is not written to the database or the audit log."""
     try:
@@ -1678,6 +1704,65 @@ def _email_reviewer_credentials(name, email, password):
     except (reviewer_credentials.EmailNotConfigured, reviewer_credentials.EmailDeliveryError) as error:
         return False, reviewer_credentials.email_failure_message(error, account_created=True)
     return True, ""
+
+
+@app.post("/api/faculty/<faculty_id>/credentials")
+def reissue_faculty_credentials(faculty_id):
+    conn, user = require_user()
+    if user["role"] != "admin":
+        conn.close()
+        return json_error("Only an administrator can resend faculty credentials.", 403)
+    try:
+        faculty_user_id = int(faculty_id)
+    except (TypeError, ValueError):
+        conn.close()
+        return json_error("Faculty was not found.", 404)
+    person = conn.execute(
+        """
+        SELECT users.id, users.email, faculty_profiles.full_name
+        FROM users
+        JOIN faculty_profiles ON faculty_profiles.user_id = users.id
+        WHERE users.id = %s AND users.role = 'faculty'
+        """,
+        (faculty_user_id,),
+    ).fetchone()
+    if not person:
+        conn.close()
+        return json_error("Faculty was not found.", 404)
+    password, password_error = reviewer_credentials.choose_password("", _temp_password)
+    if password_error:
+        conn.close()
+        return json_error(password_error, 500)
+    name = person["full_name"] or person["email"]
+    try:
+        reviewer_credentials.deliver_faculty_credentials(
+            reviewer_credentials.smtp_settings(),
+            name,
+            person["email"],
+            password,
+        )
+    except (reviewer_credentials.EmailNotConfigured, reviewer_credentials.EmailDeliveryError) as error:
+        conn.close()
+        return json_error(
+            reviewer_credentials.faculty_email_failure_message(error, account_created=False),
+            502,
+        )
+    conn.execute(
+        "UPDATE users SET password_hash = %s, must_change_password = TRUE WHERE id = %s",
+        (generate_password_hash(password), faculty_user_id),
+    )
+    conn.execute(
+        "INSERT INTO audit_logs (actor_email, action, detail, created_at) VALUES (%s, %s, %s, %s)",
+        (
+            user["email"],
+            "Reissued faculty credentials",
+            f"Emailed a new temporary password to {name} ({person['email']}).",
+            datetime.now().isoformat(sep=" ", timespec="seconds"),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "emailSent": True})
 
 
 @app.post("/api/reviewers")

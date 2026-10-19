@@ -135,6 +135,16 @@ class ApiClient {
     return (data['message'] as String?) ?? 'Your password has been updated.';
   }
 
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await sendJson('POST', '/api/auth/change-password', {
+      'currentPassword': currentPassword,
+      'newPassword': newPassword,
+    });
+  }
+
   Future<Map<String, dynamic>> login(String email, String password) async {
     final payload = {
       'email': email.trim(),

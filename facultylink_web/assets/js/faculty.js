@@ -50,6 +50,7 @@ FL.faculty = {
                 <a class="btn btn-small btn-ghost" href="${FL.faculty.detailHref(person.id)}">${FL.esc(action || "View faculty")}</a>
                 ${manage ? `
                   <button class="btn btn-small btn-primary" type="button" data-change-reviewer="${FL.esc(person.id)}">Change reviewer</button>
+                  <button class="btn btn-small btn-ghost" type="button" data-reissue-faculty="${FL.esc(person.id)}">Resend credentials</button>
                   <button class="btn btn-small btn-ghost" type="button" data-remove-faculty="${FL.esc(person.id)}">Remove</button>
                 ` : ""}
               </td>
@@ -95,6 +96,12 @@ FL.faculty = {
           FL.admin.changeFacultyReviewer(options.session, button.getAttribute("data-change-reviewer"), draw);
         });
       });
+      host.querySelectorAll("[data-reissue-faculty]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          const person = FL.store.facultyById(button.getAttribute("data-reissue-faculty"));
+          if (person) FL.faculty.reissueCredentials(person, draw);
+        });
+      });
       host.querySelectorAll("[data-remove-faculty]").forEach(function (button) {
         button.addEventListener("click", function () {
           FL.faculty.removeFaculty(button.getAttribute("data-remove-faculty"), draw);
@@ -128,7 +135,7 @@ FL.faculty = {
           <label class="field"><span>Temporary password (optional)</span><input id="faculty-password" type="text" placeholder="Auto-generated if blank"></label>
           <label class="field"><span>Assign reviewer</span><select id="faculty-reviewer">${reviewerOptions}</select></label>
         </div>
-        <p class="note">Highest degree is the faculty member’s top finished degree (Bachelor’s / Master’s / Doctorate). The account can sign in to the mobile app with this email and password.</p>`,
+        <p class="note">Leave the password blank to generate one. FacultyLink emails it to the faculty member, who must change it on first login in the mobile app.</p>`,
       onConfirm: function () {
         const payload = {
           fullName: document.getElementById("faculty-full-name").value.trim(),
@@ -149,10 +156,30 @@ FL.faculty = {
             return data;
           });
         }).then(function (data) {
-          FL.ui.toast("Faculty added. Temporary password: " + (data.temporaryPassword || "(set)"), "ok");
+          if (data.emailSent) {
+            FL.ui.toast("Faculty added. Sign-in instructions were emailed to " + payload.email + ".", "ok");
+          } else {
+            FL.ui.toast(data.emailError || "Faculty was created, but the credential email was not sent.", "danger");
+          }
           redraw();
         }).catch(function (error) {
           FL.ui.toast(error.message || "Faculty was not added.", "danger");
+        });
+      }
+    });
+  },
+
+  reissueCredentials: function (person, redraw) {
+    FL.ui.modal({
+      title: "Resend credentials",
+      confirmLabel: "Send new password",
+      body: `<p>FacultyLink will create a new temporary password for ${FL.esc(person.name)} and email it to ${FL.esc(person.email)}. The previous password stops working only after that email is sent. The faculty member must change it on the next mobile login.</p>`,
+      onConfirm: function () {
+        FL.store.reissueFacultyCredentials(person.id).then(function () {
+          FL.ui.toast("A new temporary password was emailed to " + person.email + ".", "ok");
+          redraw();
+        }).catch(function (error) {
+          FL.ui.toast(error.message || "The credential email was not sent. The current password was not changed.", "danger");
         });
       }
     });

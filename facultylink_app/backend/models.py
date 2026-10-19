@@ -18,6 +18,7 @@ class User(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default="faculty")
     created_at = db.Column(db.DateTime, default=utcnow)
+    must_change_password = db.Column(db.Boolean, nullable=False, default=False)
     # Email-OTP password recovery state (hashes only, never the raw code/token).
     reset_otp_hash = db.Column(db.String(64))
     reset_otp_expires_at = db.Column(db.DateTime)

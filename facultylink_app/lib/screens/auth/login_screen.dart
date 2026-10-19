@@ -37,6 +37,15 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       await AppState.instance.login(_email.text, _password.text);
       if (!mounted) return;
+      if (AppState.instance.mustChangePassword) {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.changePassword,
+          (_) => false,
+          arguments: const {'requiredFirstLogin': true},
+        );
+        return;
+      }
       Navigator.pushNamedAndRemoveUntil(context, AppRoutes.main, (_) => false);
     } on ApiException catch (error) {
       if (!mounted) return;

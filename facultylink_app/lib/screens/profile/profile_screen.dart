@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/app_state.dart';
 import '../../navigation/app_routes.dart';
+import '../../services/api_client.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_buttons.dart';
 import '../../widgets/app_logo.dart';
@@ -315,7 +316,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 }
 
 class ChangePasswordScreen extends StatefulWidget {
-  const ChangePasswordScreen({super.key});
+  const ChangePasswordScreen({super.key, this.requiredFirstLogin = false});
+
+  final bool requiredFirstLogin;
 
   @override
   State<ChangePasswordScreen> createState() => _ChangePasswordScreenState();
@@ -340,21 +343,45 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
-    await Future<void>.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-    setState(() => _saving = false);
-    await showSuccessDialog(
-      context: context,
-      title: 'Password updated',
-      message: 'Password changes are simulated in this prototype.',
-    );
-    if (mounted) Navigator.pop(context);
+    try {
+      if (AppState.instance.usingApi) {
+        await AppState.instance.changePassword(
+          currentPassword: _current.text,
+          newPassword: _next.text,
+        );
+      }
+      if (!mounted) return;
+      setState(() => _saving = false);
+      if (widget.requiredFirstLogin) {
+        Navigator.pushNamedAndRemoveUntil(context, AppRoutes.main, (_) => false);
+        return;
+      }
+      await showSuccessDialog(
+        context: context,
+        title: 'Password updated',
+        message: 'Your FacultyLink password has been updated.',
+      );
+      if (mounted) Navigator.pop(context);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      showAppSnackBar(context, error.message, error: true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      showAppSnackBar(context, 'The password was not updated.', error: true);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Change password')),
+    return PopScope(
+      canPop: !widget.requiredFirstLogin,
+      child: Scaffold(
+      appBar: AppBar(
+        title: Text(widget.requiredFirstLogin ? 'Set new password' : 'Change password'),
+        automaticallyImplyLeading: !widget.requiredFirstLogin,
+      ),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -395,13 +422,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             ),
             const SizedBox(height: 20),
             PrimaryButton(
-              label: 'Update password',
+              label: widget.requiredFirstLogin ? 'Continue to FacultyLink' : 'Update password',
               loading: _saving,
               onPressed: _save,
             ),
           ],
         ),
       ),
+    ),
     );
   }
 }

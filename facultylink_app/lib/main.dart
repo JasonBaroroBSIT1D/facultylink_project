@@ -83,8 +83,13 @@ class FacultyLinkApp extends StatelessWidget {
           case AppRoutes.editProfile:
             return MaterialPageRoute(builder: (_) => const EditProfileScreen());
           case AppRoutes.changePassword:
+            final args = settings.arguments;
+            final requiredFirstLogin =
+                args is Map && args['requiredFirstLogin'] == true;
             return MaterialPageRoute(
-              builder: (_) => const ChangePasswordScreen(),
+              builder: (_) => ChangePasswordScreen(
+                requiredFirstLogin: requiredFirstLogin,
+              ),
             );
           case AppRoutes.notificationSettings:
             return MaterialPageRoute(

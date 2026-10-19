@@ -65,6 +65,7 @@ def ensure_shared_schema():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_attempts INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash VARCHAR(64)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMP",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE",
     ]
     for sql in statements:
         try:
@@ -95,6 +96,16 @@ def faculty_required(fn):
         user = current_user()
         if not user or user.role != "faculty":
             return jsonify({"error": "Faculty access required."}), 403
+        if user.must_change_password:
+            return (
+                jsonify(
+                    {
+                        "error": "Change your temporary password before continuing.",
+                        "mustChangePassword": True,
+                    }
+                ),
+                403,
+            )
         return fn(user, *args, **kwargs)
 
     return wrapper
@@ -332,7 +343,39 @@ def login():
     )
     write_audit(user.email, "login", "Faculty signed in")
     db.session.commit()
-    return jsonify({"accessToken": token, "profile": user.profile.to_dict()})
+    return jsonify(
+        {
+            "accessToken": token,
+            "profile": user.profile.to_dict(),
+            "mustChangePassword": bool(user.must_change_password),
+        }
+    )
+
+
+@app.post("/api/auth/change-password")
+@jwt_required()
+def auth_change_password():
+    user = current_user()
+    if not user or user.role != "faculty":
+        return jsonify({"error": "Faculty access required."}), 403
+    data = request.get_json(silent=True) or {}
+    current = data.get("currentPassword") or ""
+    new_password = data.get("newPassword") or ""
+    if not user.check_password(current):
+        return jsonify({"error": "The current password is incorrect."}), 400
+    problem = password_reset.password_problem(new_password)
+    if problem:
+        return jsonify({"error": problem}), 400
+    if user.check_password(new_password):
+        return (
+            jsonify({"error": "Choose a password that is different from the temporary password."}),
+            400,
+        )
+    user.set_password(new_password)
+    user.must_change_password = False
+    write_audit(user.email, "Changed password", "Changed the mobile app password.")
+    db.session.commit()
+    return jsonify({"ok": True, "mustChangePassword": False})
 
 
 @app.post("/api/auth/register")
