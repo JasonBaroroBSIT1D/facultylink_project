@@ -7,7 +7,7 @@ from indicator_identity import resolve_identity_profile
 def test_kra1_set_faculty_name_profile():
     profile = resolve_identity_profile("kra1-a-student")
     assert profile.display_label == "Faculty Name"
-    label, names = extract_named_parties(
+    label, names, _from_document = extract_named_parties(
         ocr_text="Faculty Name: Ana Reyes\nOverall SET rating: 91",
         upload_author=None,
         indicator_id="kra1-a-student",
@@ -42,7 +42,7 @@ def test_kra2_journal_author_extraction():
 def test_kra2_inventor_label():
     profile = resolve_identity_profile("kra2-b-patent-g-sole")
     assert profile.display_label == "Inventor(s)"
-    label, names = extract_named_parties(
+    label, names, _from_document = extract_named_parties(
         ocr_text="Inventor: Jose Reyes\nPatent Grant No. 123",
         upload_author=None,
         indicator_id="kra2-b-patent-g-sole",
@@ -51,7 +51,7 @@ def test_kra2_inventor_label():
 
 
 def test_kra3_extension_participant():
-    label, names = extract_named_parties(
+    label, names, _from_document = extract_named_parties(
         ocr_text="Participant: Maria Santos\nCommunity outreach 2024",
         upload_author="Maria Santos",
         indicator_id="kra3-b-ext-participant",
@@ -68,7 +68,7 @@ def test_kra3_extension_participant():
 def test_kra3_admin_designation_employee_name():
     profile = resolve_identity_profile("kra3-d-dean")
     assert profile.mode == "admin_designation"
-    label, names = extract_named_parties(
+    label, names, _from_document = extract_named_parties(
         ocr_text="Employee Name: Maria Santos\nDesignation: Dean",
         upload_author=None,
         indicator_id="kra3-d-dean",
@@ -77,7 +77,7 @@ def test_kra3_admin_designation_employee_name():
 
 
 def test_kra4_awardee_extraction():
-    label, names = extract_named_parties(
+    label, names, _from_document = extract_named_parties(
         ocr_text="Certificate of Recognition\nAwardee: Maria Santos\nMarch 2024",
         upload_author=None,
         indicator_id="kra4-c-inst",
@@ -95,7 +95,7 @@ def test_kra4_awardee_extraction():
 
 
 def test_kra4_participant_certificate():
-    label, names = extract_named_parties(
+    label, names, _from_document = extract_named_parties(
         ocr_text="Certificate of Participation\nParticipant Name: Jose Reyes",
         upload_author=None,
         indicator_id="kra4-b-part-local",

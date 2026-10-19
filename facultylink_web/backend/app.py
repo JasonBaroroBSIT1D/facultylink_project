@@ -8,6 +8,7 @@ those table names. New mobile uploads are read from this database.
 import json
 import re
 import secrets
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -15,9 +16,16 @@ import psycopg
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory, session
 import mimetypes
 from psycopg.rows import dict_row
+from psycopg.types.json import Json
 from werkzeug.security import check_password_hash, generate_password_hash
 
 ROOT = Path(__file__).resolve().parent.parent
+MOBILE_BACKEND = ROOT.parent / "facultylink_app" / "backend"
+if str(MOBILE_BACKEND) not in sys.path:
+    sys.path.insert(0, str(MOBILE_BACKEND))
+
+import reviewer_credentials
+from password_reset import password_problem
 
 KRA_IDS = {
     "instruction": "kra1",
@@ -91,6 +99,7 @@ def init_db():
     ensure_kra_settings(conn)
     ensure_review_support(conn)
     ensure_evaluation_periods(conn)
+    ensure_password_change_flag(conn)
     conn.close()
 
 
@@ -114,12 +123,19 @@ def session_row(conn):
     return conn.execute("SELECT * FROM users WHERE id = %s", (user_id,)).fetchone()
 
 
+class PasswordChangeRequired(Exception):
+    """A reviewer still has the temporary password issued at account creation."""
+
+
 def require_user():
     conn = connect()
     user = session_row(conn)
     if not user or user["role"] not in ("admin", "reviewer"):
         conn.close()
         abort(401)
+    if user["role"] == "reviewer" and user.get("must_change_password"):
+        conn.close()
+        raise PasswordChangeRequired()
     return conn, user
 
 
@@ -309,6 +325,13 @@ def read_kra_settings(conn):
     cleaned["publishedAt"] = row["published_at"] or row["updated_at"] or ""
     cleaned["formula"] = row["formula"] or SCORING_FORMULA
     return cleaned
+
+
+def ensure_password_change_flag(conn):
+    conn.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE"
+    )
+    conn.commit()
 
 
 def ensure_review_support(conn):
@@ -748,6 +771,20 @@ def _file_type_label(file_name, mime_type):
     return "File"
 
 
+def _stored_ocr_confidence(raw):
+    """Use the confidence stored at extraction. Never invent one."""
+    text = str(raw or "").strip()
+    if not text or not text[0].isdigit():
+        return None
+    try:
+        value = float(text.split()[0])
+    except ValueError:
+        return None
+    if value > 1:
+        value = value / 100.0
+    return round(max(0.0, min(value, 1.0)), 3)
+
+
 def document_record(row):
     submitted = str(row["submitted_at"] or "")[:10]
     author = row["author"] or ""
@@ -767,13 +804,20 @@ def document_record(row):
     size = row.get("file_size")
     has_file = bool(row.get("file_path"))
     size_label = f"{round(size / 1024, 1)} KB" if isinstance(size, (int, float)) and size else ("On file" if has_file else "Unavailable")
-    excerpt = extracted_info.get("OCR excerpt") or text[:420]
-    extracted_date = extracted_info.get("Extracted date") or submitted
+    # Show the text that was actually stored. Do not substitute the upload date
+    # or a placeholder name for a value the extractor did not find.
+    excerpt = text or extracted_info.get("OCR excerpt") or ""
+    extracted_date = extracted_info.get("Extracted date") or ""
     extracted_authors = (
         extracted_info.get("Extracted names")
         or extracted_info.get("Extracted author(s)")
-        or author
+        or ""
     )
+    confidence = _stored_ocr_confidence(extracted_info.get("OCR confidence"))
+    if not text and not excerpt:
+        ocr_status = "failed"
+    else:
+        ocr_status = "completed"
     record = {
         "id": row["public_id"],
         "facultyId": str(row["user_id"]),
@@ -796,14 +840,12 @@ def document_record(row):
         "contribution": [{"author": author or "Faculty", "percent": 100, "subject": True}],
         "extractedInfo": extracted_info,
         "ocr": {
-            "status": "completed",
-            "confidence": 0.9,
+            "status": ocr_status,
+            "confidence": confidence,
             "title": row["title"],
-            "authors": [part.strip() for part in extracted_authors.split(";") if part.strip()]
-            or [part.strip() for part in author.split(";") if part.strip()]
-            or (["Faculty"] if author else []),
-            "date": extracted_date or submitted,
-            "content": excerpt or row["validation_result"] or "",
+            "authors": [part.strip() for part in extracted_authors.split(";") if part.strip()],
+            "date": extracted_date,
+            "content": (excerpt or "")[:12000],
         },
         "feedback": row["reviewer_feedback"] or "",
         "remarks": row.get("reviewer_remarks") or "",
@@ -841,6 +883,16 @@ def audit_record(row):
     }
 
 
+def session_payload(conn, row):
+    user = public_user(conn, row)
+    return {
+        "userId": user["id"],
+        "role": user["role"],
+        "name": user["name"],
+        "mustChangePassword": bool(row.get("must_change_password")),
+    }
+
+
 def visible_faculty_ids(conn, user):
     if user["role"] == "admin":
         return None
@@ -856,6 +908,14 @@ def visible_faculty_ids(conn, user):
 @app.errorhandler(401)
 def unauthorized(_error):
     return jsonify({"error": "Sign in is required."}), 401
+
+
+@app.errorhandler(PasswordChangeRequired)
+def password_change_required(_error):
+    return jsonify({
+        "error": "Change your temporary password before continuing.",
+        "mustChangePassword": True,
+    }), 403
 
 
 @app.post("/api/login")
@@ -881,15 +941,53 @@ def login():
         (row["email"], "login", "Signed in to the FacultyLink web application.", datetime.now().isoformat(sep=" ", timespec="seconds")),
     )
     conn.commit()
-    user = public_user(conn, row)
+    payload = session_payload(conn, row)
     conn.close()
-    return jsonify({"userId": user["id"], "role": user["role"], "name": user["name"]})
+    return jsonify(payload)
 
 
 @app.post("/api/logout")
 def logout():
     session.clear()
     return jsonify({"ok": True})
+
+
+@app.post("/api/account/password")
+def change_password():
+    conn = connect()
+    user = session_row(conn)
+    if not user or user["role"] not in ("admin", "reviewer"):
+        conn.close()
+        return json_error("Sign in is required.", 401)
+    payload = request.get_json(silent=True) or {}
+    current = str(payload.get("currentPassword") or "")
+    new_password = str(payload.get("newPassword") or "")
+    if not check_password_hash(user["password_hash"], current):
+        conn.close()
+        return json_error("The current password is incorrect.", 400)
+    problem = password_problem(new_password)
+    if problem:
+        conn.close()
+        return json_error(problem, 400)
+    if check_password_hash(user["password_hash"], new_password):
+        conn.close()
+        return json_error("Choose a password that is different from the temporary password.", 400)
+    conn.execute(
+        "UPDATE users SET password_hash = %s, must_change_password = FALSE WHERE id = %s",
+        (generate_password_hash(new_password), user["id"]),
+    )
+    conn.execute(
+        "INSERT INTO audit_logs (actor_email, action, detail, created_at) VALUES (%s, %s, %s, %s)",
+        (
+            user["email"],
+            "Changed password",
+            "Changed the web portal password.",
+            datetime.now().isoformat(sep=" ", timespec="seconds"),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "mustChangePassword": False})
 
 
 @app.get("/api/session")
@@ -899,9 +997,9 @@ def current_session():
     if not row or row["role"] not in ("admin", "reviewer"):
         conn.close()
         return jsonify({"user": None})
-    user = public_user(conn, row)
+    payload = session_payload(conn, row)
     conn.close()
-    return jsonify({"user": {"userId": user["id"], "role": user["role"], "name": user["name"]}})
+    return jsonify({"user": payload})
 
 
 @app.get("/api/state")
@@ -1122,6 +1220,149 @@ def resolve_upload_path(stored):
     return None
 
 
+def _document_info(raw):
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    return {}
+
+
+def sync_faculty_scores(conn, user_id):
+    """Recalculate shared KRA totals and rank simulation with the mobile scoring rules."""
+    from kra_config import config_from_payload
+    from scoring import WEIGHTED_FORMULA, summarize_documents
+
+    settings = conn.execute(
+        "SELECT payload, version, status, published_at, formula, updated_at FROM kra_settings WHERE id = 1"
+    ).fetchone()
+    payload = {}
+    version = 1
+    status_label = "published"
+    published_at = ""
+    formula = None
+    if settings:
+        raw_payload = settings["payload"]
+        if isinstance(raw_payload, str):
+            try:
+                payload = json.loads(raw_payload)
+            except (TypeError, ValueError):
+                payload = {}
+        elif isinstance(raw_payload, dict):
+            payload = raw_payload
+        version = int(settings["version"] or 1)
+        status_label = settings["status"] or "published"
+        published_at = str(settings["published_at"] or settings["updated_at"] or "")
+        formula = settings["formula"]
+    config = config_from_payload(
+        payload,
+        version=version,
+        status=status_label,
+        published_at=published_at,
+        formula=formula,
+    )
+    profile = conn.execute(
+        "SELECT current_rank FROM faculty_profiles WHERE user_id = %s",
+        (user_id,),
+    ).fetchone()
+    rank = profile["current_rank"] if profile and profile["current_rank"] else "Instructor I"
+    rows = conn.execute(
+        """
+        SELECT public_id, status, kra, points, reviewer_score, indicator_id
+        FROM documents
+        WHERE user_id = %s
+        """,
+        (user_id,),
+    ).fetchall()
+
+    class _Doc:
+        pass
+
+    documents = []
+    for row in rows:
+        doc = _Doc()
+        doc.public_id = row["public_id"]
+        doc.status = row["status"]
+        doc.kra = row["kra"]
+        doc.points = row["points"]
+        doc.reviewer_score = row["reviewer_score"]
+        doc.indicator_id = row["indicator_id"]
+        documents.append(doc)
+    summary = summarize_documents(documents, config, rank)
+    for kra, target in summary["targets"].items():
+        current = int(round(summary["totals"].get(kra, 0)))
+        count = int(summary["counts"].get(kra, 0))
+        if current >= float(target):
+            label = "On track"
+        elif current == 0:
+            label = "Needs attention"
+        else:
+            label = "In progress"
+        updated = conn.execute(
+            """
+            UPDATE kra_scores
+            SET current_points = %s, target_points = %s, document_count = %s, status_label = %s
+            WHERE user_id = %s AND kra = %s
+            """,
+            (current, int(target), count, label, user_id, kra),
+        )
+        if updated.rowcount == 0:
+            conn.execute(
+                """
+                INSERT INTO kra_scores (
+                    user_id, kra, current_points, target_points, document_count, status_label, breakdown
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (user_id, kra, current, int(target), count, label, json.dumps([])),
+            )
+    areas = summary["areas"]
+    snapshot = summary["snapshot"]
+    weighted = int(round(summary["weighted"]))
+    changed = conn.execute(
+        """
+        UPDATE rank_simulations
+        SET current_points = %s, required_points = 100, eligibility_label = %s,
+            areas_to_improve = %s, kra_config_version = %s, scoring_formula = %s,
+            config_snapshot = %s, current_rank = %s
+        WHERE user_id = %s
+        """,
+        (
+            weighted,
+            summary["eligibility"],
+            Json(areas),
+            int(config.get("version") or 0),
+            WEIGHTED_FORMULA,
+            Json(snapshot),
+            rank,
+            user_id,
+        ),
+    )
+    if changed.rowcount == 0:
+        conn.execute(
+            """
+            INSERT INTO rank_simulations (
+                user_id, current_rank, target_rank, current_points, required_points,
+                eligibility_label, areas_to_improve, kra_config_version, scoring_formula, config_snapshot
+            ) VALUES (%s, %s, %s, %s, 100, %s, %s, %s, %s, %s)
+            """,
+            (
+                user_id,
+                rank,
+                "Instructor II",
+                weighted,
+                summary["eligibility"],
+                Json(areas),
+                int(config.get("version") or 0),
+                WEIGHTED_FORMULA,
+                Json(snapshot),
+            ),
+        )
+
+
 @app.put("/api/documents/<document_id>")
 def update_document(document_id):
     conn, user = require_user()
@@ -1151,6 +1392,8 @@ def update_document(document_id):
     snapshot_raw = row.get("review_snapshot")
     reviewer_score = row.get("reviewer_score")
     decided_at = row.get("decided_at")
+    credited_points = row["points"]
+    extracted_info = _document_info(row.get("extracted_info"))
     if status == "validated":
         if str(feedback or "").strip() == "" and str(remarks or "").strip() == "":
             feedback = feedback or ""
@@ -1173,16 +1416,24 @@ def update_document(document_id):
         snapshot_raw = json.dumps(snapshot)
         reviewer_score = snapshot["finalScore"]
         decided_at = snapshot["capturedAt"]
+        credited_points = int(round(float(reviewer_score)))
+        extracted_info["Verified score"] = str(reviewer_score)
+        extracted_info["Verification tier"] = "Reviewer verified"
     elif status in ("rejected", "needsRevision"):
         if not str(feedback or "").strip():
             conn.close()
             return json_error("A reason is required when rejecting a document." if status == "rejected" else "Remarks are required when requesting a revision.", 400)
         decided_at = datetime.now().isoformat(sep=" ", timespec="seconds")
+        credited_points = 0
+        reviewer_score = None
+    elif status in ("pendingReview", "processing"):
+        credited_points = 0
     conn.execute(
         """
         UPDATE documents
         SET status = %s, reviewer_feedback = %s, reviewer_remarks = %s, flagged_for_review = %s,
-            indicator_id = %s, reviewer_score = %s, review_snapshot = %s, decided_at = %s
+            indicator_id = %s, reviewer_score = %s, review_snapshot = %s, decided_at = %s,
+            points = %s, extracted_info = %s
         WHERE public_id = %s
         """,
         (
@@ -1194,9 +1445,13 @@ def update_document(document_id):
             reviewer_score,
             snapshot_raw,
             decided_at,
+            credited_points,
+            Json(extracted_info),
             document_id,
         ),
     )
+    if status in ("validated", "rejected", "needsRevision", "pendingReview"):
+        sync_faculty_scores(conn, row["user_id"])
     conn.commit()
     updated = conn.execute("SELECT * FROM documents WHERE public_id = %s", (document_id,)).fetchone()
     body = document_record(updated)
@@ -1410,6 +1665,21 @@ def remove_faculty(faculty_id):
     return jsonify({"ok": True})
 
 
+def _email_reviewer_credentials(name, email, password):
+    """Email the temporary password. The plaintext is not written to the database or the audit log."""
+    try:
+        reviewer_credentials.deliver_reviewer_credentials(
+            reviewer_credentials.smtp_settings(),
+            name,
+            email,
+            password,
+            request.host_url + "login.html",
+        )
+    except (reviewer_credentials.EmailNotConfigured, reviewer_credentials.EmailDeliveryError) as error:
+        return False, reviewer_credentials.email_failure_message(error, account_created=True)
+    return True, ""
+
+
 @app.post("/api/reviewers")
 def create_reviewer():
     conn, user = require_user()
@@ -1420,17 +1690,22 @@ def create_reviewer():
     email = _clean_email(payload.get("email"))
     full_name = str(payload.get("fullName") or "").strip()
     department = str(payload.get("department") or "Institutional Review").strip() or "Institutional Review"
-    password = str(payload.get("password") or "").strip() or _temp_password()
     if not email or not full_name:
         conn.close()
         return json_error("Email and full name are required.", 400)
+    password, password_error = reviewer_credentials.choose_password(
+        payload.get("password"), _temp_password
+    )
+    if password_error:
+        conn.close()
+        return json_error(password_error, 400)
     if conn.execute("SELECT id FROM users WHERE lower(email) = %s", (email,)).fetchone():
         conn.close()
         return json_error("That email is already registered.", 409)
     row = conn.execute(
         """
-        INSERT INTO users (email, password_hash, role, created_at)
-        VALUES (%s, %s, 'reviewer', %s)
+        INSERT INTO users (email, password_hash, role, created_at, must_change_password)
+        VALUES (%s, %s, 'reviewer', %s, TRUE)
         RETURNING id
         """,
         (email, generate_password_hash(password), datetime.now()),
@@ -1460,12 +1735,17 @@ def create_reviewer():
             "N/A",
         ),
     )
+    email_sent, email_error = _email_reviewer_credentials(full_name, email, password)
     conn.execute(
         "INSERT INTO audit_logs (actor_email, action, detail, created_at) VALUES (%s, %s, %s, %s)",
         (
             user["email"],
             "Added reviewer",
-            f"Created reviewer account {full_name} ({email}).",
+            (
+                f"Created reviewer account {full_name} ({email}). Sign-in instructions were emailed."
+                if email_sent
+                else f"Created reviewer account {full_name} ({email}). Sign-in email was not delivered."
+            ),
             datetime.now().isoformat(sep=" ", timespec="seconds"),
         ),
     )
@@ -1473,7 +1753,70 @@ def create_reviewer():
     created = conn.execute("SELECT * FROM users WHERE id = %s", (row["id"],)).fetchone()
     body = public_user(conn, created)
     conn.close()
-    return jsonify({"ok": True, "reviewer": body, "temporaryPassword": password}), 201
+    result = {"ok": True, "reviewer": body, "emailSent": email_sent}
+    if not email_sent:
+        result["emailError"] = email_error
+    return jsonify(result), 201
+
+
+@app.post("/api/reviewers/<reviewer_id>/credentials")
+def reissue_reviewer_credentials(reviewer_id):
+    conn, user = require_user()
+    if user["role"] != "admin":
+        conn.close()
+        return json_error("Only an administrator can resend reviewer credentials.", 403)
+    try:
+        reviewer_user_id = int(reviewer_id)
+    except (TypeError, ValueError):
+        conn.close()
+        return json_error("Reviewer was not found.", 404)
+    reviewer = conn.execute(
+        """
+        SELECT users.id, users.email, faculty_profiles.full_name
+        FROM users
+        LEFT JOIN faculty_profiles ON faculty_profiles.user_id = users.id
+        WHERE users.id = %s AND users.role = 'reviewer'
+        """,
+        (reviewer_user_id,),
+    ).fetchone()
+    if not reviewer:
+        conn.close()
+        return json_error("Reviewer was not found.", 404)
+    password, password_error = reviewer_credentials.choose_password("", _temp_password)
+    if password_error:
+        conn.close()
+        return json_error(password_error, 500)
+    name = reviewer["full_name"] or reviewer["email"]
+    try:
+        reviewer_credentials.deliver_reviewer_credentials(
+            reviewer_credentials.smtp_settings(),
+            name,
+            reviewer["email"],
+            password,
+            request.host_url + "login.html",
+        )
+    except (reviewer_credentials.EmailNotConfigured, reviewer_credentials.EmailDeliveryError) as error:
+        conn.close()
+        return json_error(
+            reviewer_credentials.email_failure_message(error, account_created=False),
+            502,
+        )
+    conn.execute(
+        "UPDATE users SET password_hash = %s, must_change_password = TRUE WHERE id = %s",
+        (generate_password_hash(password), reviewer_user_id),
+    )
+    conn.execute(
+        "INSERT INTO audit_logs (actor_email, action, detail, created_at) VALUES (%s, %s, %s, %s)",
+        (
+            user["email"],
+            "Reissued reviewer credentials",
+            f"Emailed a new temporary password to {name} ({reviewer['email']}).",
+            datetime.now().isoformat(sep=" ", timespec="seconds"),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "emailSent": True})
 
 
 @app.delete("/api/reviewers/<reviewer_id>")

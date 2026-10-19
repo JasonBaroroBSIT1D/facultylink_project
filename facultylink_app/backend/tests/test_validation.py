@@ -34,7 +34,7 @@ def test_extract_rating_from_set_summary():
 
 
 def test_extract_faculty_name_from_set_document():
-    label, names = extract_named_parties(
+    label, names, _from_document = extract_named_parties(
         ocr_text="Student Evaluation of Teachers\nFaculty Name: Maria Santos\nOverall SET rating: 90",
         upload_author=None,
         indicator_id="kra1-a-student",
@@ -44,7 +44,7 @@ def test_extract_faculty_name_from_set_document():
 
 
 def test_extract_participant_name_from_certificate():
-    label, names = extract_named_parties(
+    label, names, _from_document = extract_named_parties(
         ocr_text="Certificate of Participation\nParticipant Name: Jose Reyes\nDate: March 10, 2024",
         upload_author=None,
         indicator_id="kra4-a-training",
@@ -99,6 +99,7 @@ def test_process_upload_auto_approves_journal_with_ocr(tmp_path: Path):
         file_path=str(path),
         declared_kra="research",
         criterion_id="kra2-a",
+        uploader_name="Maria Santos",
     )
     assert result["indicator_id"] == "kra2-a-journal-sole"
     assert result["status"] == "system_approved"

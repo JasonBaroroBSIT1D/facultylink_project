@@ -207,30 +207,44 @@ def load_active_kra_config(db) -> dict:
     if not row:
         return _empty_config()
 
-    payload = _parse_payload(row.get("payload"))
-    version = int(row.get("version") or 1)
-    formula = (row.get("formula") or "").strip() or SCORING_FORMULA
+    return config_from_payload(
+        _parse_payload(row.get("payload")),
+        version=int(row.get("version") or 1),
+        status=row.get("status") or "published",
+        published_at=row.get("published_at") or row.get("updated_at") or "",
+        formula=(row.get("formula") or "").strip() or SCORING_FORMULA,
+    )
+
+
+def config_from_payload(
+    payload,
+    *,
+    version: int = 1,
+    status: str = "published",
+    published_at: str = "",
+    formula: str | None = None,
+) -> dict:
+    """Build the scoring config from a kra_settings payload."""
+    payload = payload if isinstance(payload, dict) else {}
     targets = dict(DEFAULT_KRA_MAX)
     for web_id, mobile_id in WEB_TO_MOBILE_KRA.items():
         entry = (payload.get("kras") or {}).get(web_id) or {}
         if isinstance(entry, dict) and isinstance(entry.get("maxPoints"), (int, float)):
             targets[mobile_id] = int(round(float(entry["maxPoints"])))
-
     indicators = payload.get("indicators") if isinstance(payload.get("indicators"), dict) else {}
     criteria = payload.get("criteria") if isinstance(payload.get("criteria"), dict) else {}
-    rank_weights = normalize_rank_weights(payload.get("rankWeights"))
     return {
-        "version": version,
-        "status": row.get("status") or "published",
-        "publishedAt": row.get("published_at") or row.get("updated_at") or "",
-        "formula": formula,
+        "version": int(version or 1),
+        "status": status or "published",
+        "publishedAt": published_at or "",
+        "formula": formula or SCORING_FORMULA,
         "weightedFormula": WEIGHTED_FORMULA,
         "targets": targets,
         "requiredPoints": 100,
         "kras": payload.get("kras") or {},
         "criteria": criteria,
         "indicators": indicators,
-        "rankWeights": rank_weights,
+        "rankWeights": normalize_rank_weights(payload.get("rankWeights")),
     }
 
 
@@ -275,3 +289,99 @@ def indicator_cap(config: dict, indicator_id: str | None) -> float | None:
 def final_score(base_points: float, contribution_percent: float) -> float:
     """Same formula as web: Final Score = Base Points × Contribution Percentage."""
     return round(float(base_points) * (float(contribution_percent) / 100.0), 2)
+
+
+def _published_number(entry: dict, key: str) -> float | None:
+    value = entry.get(key) if isinstance(entry, dict) else None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def credited_kra_totals(entries: list[dict], config: dict | None = None) -> dict[str, float]:
+    """Roll verified indicator scores up to credited KRA totals.
+
+    Applies Annex A group caps, criterion maxima, the KRA maximum of 100,
+    and the KRA III/IV bonus ceiling. Published kra_settings override the
+    KRA, criterion, and indicator maxima when an administrator has set them.
+    The final KRA total, including bonus, cannot exceed the KRA maximum.
+    """
+    from indicator_rules import load_scoring_structure, rule_for
+    from kra_catalog import find_indicator
+
+    structure = load_scoring_structure()
+    config = config or {}
+    published_criteria = config.get("criteria") if isinstance(config.get("criteria"), dict) else {}
+    targets = config.get("targets") if isinstance(config.get("targets"), dict) else {}
+
+    grouped: list[tuple[float, str, str]] = []
+    for entry in entries:
+        indicator_id = entry.get("indicator_id")
+        try:
+            points = float(entry.get("points") or 0)
+        except (TypeError, ValueError):
+            points = 0.0
+        if not indicator_id or points <= 0:
+            continue
+        cap = indicator_cap(config, indicator_id)
+        rule = rule_for(indicator_id) or {}
+        if isinstance(rule.get("maxPoints"), (int, float)):
+            rule_cap = float(rule["maxPoints"])
+            cap = rule_cap if cap is None else min(cap, rule_cap)
+        if cap is not None:
+            points = min(points, cap)
+        if points <= 0:
+            continue
+        grouped.append((points, indicator_id, rule.get("group") or ""))
+
+    grouped.sort(key=lambda item: (-item[0], item[1]))
+    group_used: dict[str, float] = {}
+    by_criterion: dict[str, float] = {}
+    for points, indicator_id, group in grouped:
+        found = find_indicator(indicator_id)
+        if not found:
+            continue
+        rule = rule_for(indicator_id) or {}
+        if group and isinstance(rule.get("groupMax"), (int, float)):
+            room = max(0.0, float(rule["groupMax"]) - group_used.get(group, 0.0))
+            points = min(points, room)
+            group_used[group] = group_used.get(group, 0.0) + points
+        if points <= 0:
+            continue
+        criterion_id = found["criterion"]["id"]
+        by_criterion[criterion_id] = by_criterion.get(criterion_id, 0.0) + points
+
+    totals = {key: 0.0 for key in KRA_KEYS}
+    for criterion_id, raw in by_criterion.items():
+        meta = (structure.get("criteria") or {}).get(criterion_id) or {}
+        kra_id = meta.get("kra") or ""
+        mobile = WEB_TO_MOBILE_KRA.get(kra_id)
+        if not mobile:
+            continue
+        published_cap = _published_number(published_criteria.get(criterion_id) or {}, "maxPoints")
+        criterion_cap = published_cap if published_cap is not None else float(meta.get("maxPoints") or 0)
+        capped = min(raw, criterion_cap) if criterion_cap else raw
+        if meta.get("bonus"):
+            kra_meta = (structure.get("kras") or {}).get(kra_id) or {}
+            bonus_cap = float(kra_meta.get("bonusMax") or criterion_cap or 0)
+            if published_cap is not None:
+                bonus_cap = min(bonus_cap, published_cap) if bonus_cap else published_cap
+            capped = min(capped, bonus_cap) if bonus_cap else capped
+            totals[mobile] = totals.get(mobile, 0.0) + capped
+            totals.setdefault("_bonus_" + mobile, 0.0)
+            totals["_bonus_" + mobile] = totals.get("_bonus_" + mobile, 0.0) + capped
+        else:
+            totals[mobile] = totals.get(mobile, 0.0) + capped
+
+    credited: dict[str, float] = {}
+    for mobile in KRA_KEYS:
+        web_id = MOBILE_TO_WEB_KRA[mobile]
+        kra_meta = (structure.get("kras") or {}).get(web_id) or {}
+        kra_max = targets.get(mobile)
+        if not isinstance(kra_max, (int, float)):
+            kra_max = kra_meta.get("maxPoints", DEFAULT_KRA_MAX.get(mobile, 100))
+        regular = totals.get(mobile, 0.0) - totals.get("_bonus_" + mobile, 0.0)
+        bonus = totals.get("_bonus_" + mobile, 0.0)
+        regular = min(max(regular, 0.0), float(kra_max))
+        credited[mobile] = round(min(float(kra_max), regular + bonus), 2)
+    return credited

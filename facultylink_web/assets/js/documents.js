@@ -16,6 +16,22 @@ FL.documents = {
     return doc.status === "pending-review" || doc.status === "reviewer-required" || doc.status === "invalid";
   },
 
+  provisionalScore: function (doc) {
+    const raw = doc.extractedInfo && doc.extractedInfo["Provisional score"];
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  },
+
+  creditedPoints: function (doc) {
+    if (doc.status === "approved" && doc.review && typeof doc.review.finalScore === "number") {
+      return doc.review.finalScore;
+    }
+    if ((doc.status === "approved" || doc.status === "system-approved") && typeof doc.databasePoints === "number") {
+      return doc.databasePoints;
+    }
+    return 0;
+  },
+
   kraLabel: function (doc) {
     if (!doc.indicatorId) {
       const found = FL.validation.classify(doc);
@@ -95,16 +111,11 @@ FL.documents = {
               const reviewer = FL.store.userById(doc.reviewerId);
               const scored = FL.scoring.scoreDocument(doc);
               const ocr = doc.ocr && doc.ocr.status === "completed" ? "Completed" : doc.ocr && doc.ocr.status === "processing" ? "Processing" : "Pending";
-              const approvedScore = doc.status === "approved" && doc.review && typeof doc.review.finalScore === "number"
-                ? doc.review.finalScore
-                : null;
+              const credited = FL.documents.creditedPoints(doc);
+              const provisional = FL.documents.provisionalScore(doc);
               const scoreCell = doc.status === "ignored-duplicate"
                 ? "—"
-                : approvedScore !== null
-                  ? FL.esc(String(approvedScore))
-                  : typeof doc.databasePoints === "number"
-                    ? `<span title="Uploaded by faculty; not counted until approved">—</span><div class="sub">Uploaded ${FL.esc(String(doc.databasePoints))}</div>`
-                    : "—";
+                : `<div>Credited ${FL.esc(String(credited))}</div>${provisional == null ? "" : `<div class="sub">Provisional ${FL.esc(String(provisional))}</div>`}`;
               return `<tr>
                 <td>${FL.esc(doc.id)}</td>
                 <td>${FL.esc(faculty ? faculty.name : "—")}</td>
@@ -200,6 +211,7 @@ FL.documents = {
       <section class="card" id="contribution">${FL.documents.contributionHtml(scored, doc)}</section>
       <section class="card" id="decision">${FL.documents.decisionHtml(doc, canDecide)}</section>`;
     FL.documents.bindJumpNav();
+    FL.documents.bindZoom();
     const openOriginal = function (event) {
       if (event) {
         event.preventDefault();
@@ -266,6 +278,29 @@ FL.documents = {
     return doc.fileUrl + join + "disposition=inline";
   },
 
+  /* Zoom buttons for image previews on tablet and phone (pinch zoom also works). */
+  bindZoom: function () {
+    const frame = document.querySelector(".original-file-frame--zoom");
+    if (!frame) return;
+    const image = frame.querySelector("img");
+    const level = document.querySelector(".zoom-tools .zoom-level");
+    let percent = 100;
+    const apply = function () {
+      percent = Math.max(100, Math.min(400, percent));
+      image.style.width = percent + "%";
+      if (level) level.textContent = percent + "%";
+    };
+    document.querySelectorAll(".zoom-tools [data-zoom]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        const action = button.getAttribute("data-zoom");
+        if (action === "in") percent += 25;
+        else if (action === "out") percent -= 25;
+        else percent = 100;
+        apply();
+      });
+    });
+  },
+
   bindJumpNav: function () {
     document.querySelectorAll(".jump a[href^='#']").forEach(function (link) {
       link.addEventListener("click", function (event) {
@@ -288,7 +323,8 @@ FL.documents = {
     const isPdf = mime.indexOf("pdf") >= 0 || /\.pdf$/.test(lower);
     const downloadBtn = `<a class="btn btn-small btn-ghost" href="${FL.esc(doc.fileUrl)}" download="${FL.esc(doc.fileName || "document")}">Download file</a>`;
     if (isImage) {
-      return `<div class="original-file"><div class="original-file-actions">${downloadBtn}</div><div class="original-file-frame original-file-frame--doc"><img src="${inlineUrl}" alt="${FL.esc(doc.fileName || "Uploaded document")}"></div></div>`;
+      const zoomTools = `<span class="zoom-tools" role="group" aria-label="Zoom document"><button class="btn btn-small btn-ghost" type="button" data-zoom="out" aria-label="Zoom out">−</button><span class="zoom-level" aria-live="polite">100%</span><button class="btn btn-small btn-ghost" type="button" data-zoom="in" aria-label="Zoom in">+</button><button class="btn btn-small btn-ghost" type="button" data-zoom="fit">Fit</button></span>`;
+      return `<div class="original-file"><div class="original-file-actions">${downloadBtn}${zoomTools}</div><div class="original-file-frame original-file-frame--doc original-file-frame--zoom"><img src="${inlineUrl}" alt="${FL.esc(doc.fileName || "Uploaded document")}"></div></div>`;
     }
     if (isPdf) {
       const src = inlineUrl + "#toolbar=0&navpanes=0&scrollbar=1&view=FitH";
@@ -313,7 +349,7 @@ FL.documents = {
     }).map(function (key) {
       return `<div><dt>${FL.esc(key)}</dt><dd>${FL.esc(String(info[key]))}</dd></div>`;
     }).join("");
-    const excerpt = (info["OCR excerpt"] || info.OCR || doc.ocr.content || "").trim();
+    const excerpt = ((doc.ocr && doc.ocr.content) || info["OCR excerpt"] || info.OCR || "").trim();
     const identityLabel = info["Identity field label"] || "Named party";
     const identityValue = info["Extracted names"] || info["Extracted author(s)"] || (doc.ocr.authors && doc.ocr.authors.join(", ")) || "";
     const identityStatus = info["Identity verification"] || "";
@@ -330,26 +366,37 @@ FL.documents = {
   },
 
   classificationHtml: function (doc, validation) {
-    const detected = validation.classification.detected;
+    const info = doc.extractedInfo && typeof doc.extractedInfo === "object" ? doc.extractedInfo : {};
+    const storedIndicator = info["Automatically identified indicator"] || "";
+    const storedKra = info["Detected KRA"] || "";
+    const storedConfidence = info["Classification confidence"] || "";
+    const hasStored = !!(storedIndicator || storedKra || info["Review reasons"] || info["OCR quality"]);
+    const detected = hasStored ? null : validation.classification.detected;
     const kra = detected ? FL.rules.findKra(detected.kraId) : null;
-    let status = validation.classification.status;
-    const autoName = doc.extractedInfo && doc.extractedInfo["Automatically identified indicator"];
-    const autoBlock = autoName
-      ? `<dl class="facts compact"><div><dt>Automatically identified indicator</dt><dd>${FL.esc(autoName)}</dd></div></dl>`
-      : "";
+    let status = hasStored ? (info["Review reasons"] ? "reviewer-required" : "classified") : validation.classification.status;
     const rows = FL.rules.kras.map(function (item) {
       const rule = FL.rules.classification.find(function (entry) { return entry.kraId === item.id; });
       return { kra: item, rule: rule };
     });
+    const decision = hasStored
+      ? `<dl class="facts compact">
+          <div><dt>Stored indicator</dt><dd>${storedIndicator ? FL.esc(storedIndicator) : "—"}</dd></div>
+          <div><dt>Stored detected KRA</dt><dd>${storedKra ? FL.esc(String(storedKra)) : "—"}</dd></div>
+          <div><dt>Stored classification confidence</dt><dd>${storedConfidence !== "" ? FL.esc(String(storedConfidence)) : "—"}</dd></div>
+          <div><dt>OCR quality</dt><dd>${FL.esc(info["OCR quality"] || "—")}</dd></div>
+          <div><dt>OCR confidence</dt><dd>${FL.esc(info["OCR confidence"] || "—")}</dd></div>
+        </dl>
+        ${info["Review reasons"] ? `<div class="alert alert-warning">${FL.esc(String(info["Review reasons"]))}</div>` : ""}
+        <p class="note">These values were stored when the document was processed. The keyword table is a reference and is not a second classification of the excerpt.</p>`
+      : `<dl class="facts compact">
+          <div><dt>Detected KRA</dt><dd>${kra ? FL.esc(kra.code + " — " + kra.name) : "None"}</dd></div>
+          <div><dt>Classification status</dt><dd>${FL.esc(status === "classified" ? "Classified" : status === "priority" ? "Keyword tie-break applied" : status === "unclassified" ? "Cannot classify" : "Waiting for OCR")}</dd></div>
+          <div><dt>Applicable keyword rule</dt><dd>${detected ? FL.esc(detected.keywords.join(", ")) + (kra ? " · " + kra.code : "") : "No keyword rule matched"}</dd></div>
+        </dl>`;
     return `
       <div class="card-head"><h2>KRA classification</h2>${FL.ui.statusBadge(status === "pending" ? "pending" : status)}</div>
-      ${autoBlock}
-      <p>Faculty select only the KRA and criterion at upload. FacultyLink uses OCR and DBM–CHED rules to identify the indicator within that criterion. The keyword table below only suggests a KRA when OCR text matches more than one rule.</p>
-      <dl class="facts compact">
-        <div><dt>Detected KRA</dt><dd>${kra ? FL.esc(kra.code + " — " + kra.name) : "None"}</dd></div>
-        <div><dt>Classification status</dt><dd>${FL.esc(status === "classified" ? "Classified" : status === "priority" ? "Keyword tie-break applied" : status === "unclassified" ? "Cannot classify" : "Waiting for OCR")}</dd></div>
-        <div><dt>Applicable keyword rule</dt><dd>${detected ? FL.esc(detected.keywords.join(", ")) + (kra ? " · " + kra.code : "") : "No keyword rule matched"}</dd></div>
-      </dl>
+      <p>Faculty select only the KRA and criterion at upload. FacultyLink uses OCR and DBM–CHED rules to identify the indicator within that criterion.</p>
+      ${decision}
       <div class="table-wrap"><table class="data">
         <thead><tr><th>Official KRA</th><th>Keywords</th><th>If several match</th></tr></thead>
         <tbody>${rows.map(function (row) {
@@ -425,10 +472,10 @@ FL.documents = {
       </ul>
       <h3 class="block-label">KRA classification</h3>
       <dl class="facts compact">
-        <div><dt>KRA</dt><dd>${klass.detected ? FL.esc(klass.detected.label) : "—"}</dd></div>
+        <div><dt>KRA</dt><dd>${(doc.extractedInfo && doc.extractedInfo["Detected KRA"]) ? FL.esc(String(doc.extractedInfo["Detected KRA"])) : (klass.detected ? FL.esc(klass.detected.label) : "—")}</dd></div>
         <div><dt>Criterion</dt><dd>${doc.indicatorId && FL.rules.findIndicator(doc.indicatorId) ? FL.esc(FL.rules.findIndicator(doc.indicatorId).criterion.name) : "—"}</dd></div>
-        <div><dt>Indicator</dt><dd>${doc.indicatorId && FL.rules.findIndicator(doc.indicatorId) ? FL.esc(FL.rules.findIndicator(doc.indicatorId).indicator.name) : "—"}</dd></div>
-        <div><dt>Classification result</dt><dd>${FL.ui.statusBadge(klass.status === "pending" ? "pending" : klass.status)}</dd></div>
+        <div><dt>Indicator</dt><dd>${(doc.extractedInfo && doc.extractedInfo["Automatically identified indicator"]) ? FL.esc(doc.extractedInfo["Automatically identified indicator"]) : (doc.indicatorId && FL.rules.findIndicator(doc.indicatorId) ? FL.esc(FL.rules.findIndicator(doc.indicatorId).indicator.name) : "—")}</dd></div>
+        <div><dt>Classification result</dt><dd>${(doc.extractedInfo && doc.extractedInfo["Classification confidence"] !== undefined && doc.extractedInfo["Classification confidence"] !== "") ? FL.esc("Stored confidence " + doc.extractedInfo["Classification confidence"]) : FL.ui.statusBadge(klass.status === "pending" ? "pending" : klass.status)}</dd></div>
       </dl>
       <h3 class="block-label">Documentary evidence</h3>
       <p>${FL.ui.statusBadge(validation.evidenceStatus)} ${validation.evidenceMissing.length ? FL.esc(validation.evidenceMissing[0]) : "The required evidence for the matched indicator is attached."}</p>
@@ -446,7 +493,7 @@ FL.documents = {
     const criterion = kra && kra.criteria.find(function (item) { return item.id === found.criterion.id; });
     return {
       criterion: criterion ? criterion.earned : 0,
-      kra: kra ? FL.scoring.round(kra.earned + kra.bonus) : 0,
+      kra: kra ? kra.credited : 0,
       max: found.indicator.maxPoints
     };
   },
@@ -556,6 +603,8 @@ FL.documents = {
         <div><dt>KRA</dt><dd>${FL.esc(scored.kra.code + " — " + scored.kra.name)}</dd></div>
         <div><dt>Criterion</dt><dd>${FL.esc(scored.criterion.name)}</dd></div>
         <div><dt>Indicator</dt><dd>${FL.esc(scored.indicator.name)}</dd></div>
+        <div><dt>Provisional Score</dt><dd>${FL.documents.provisionalScore(doc) == null ? "—" : FL.esc(String(FL.documents.provisionalScore(doc)))}</dd></div>
+        <div><dt>Credited Points</dt><dd><strong>${FL.esc(String(FL.documents.creditedPoints(doc)))}</strong></dd></div>
         <div><dt>Official point value</dt><dd>${FL.esc(String(officialPoints))}</dd></div>
         <div><dt>Official maximum</dt><dd><strong>${FL.esc(String(officialMax))}</strong></dd></div>
         ${editable ? "" : `<div><dt>Assigned score</dt><dd>${assigned === "" ? "—" : FL.esc(String(assigned))}</dd></div>
@@ -563,7 +612,7 @@ FL.documents = {
         <div><dt>Faculty accumulated score</dt><dd>${FL.esc(String(totals.criterion))} in this criterion · ${FL.esc(String(totals.kra))} in this KRA</dd></div>
       </dl>
       ${scoreField}
-      <p class="note">${scored.historical ? "This approved score is kept as it was recorded. A later change to the official KRA configuration does not change it." : "The assigned score is included in the faculty total only after you approve the document below."}${typeof doc.databasePoints === "number" ? " The uploaded record shows " + FL.esc(String(doc.databasePoints)) + " points." : ""}</p>`;
+      <p class="note">${scored.historical ? "This approved score is kept as it was recorded. A later change to the official KRA configuration does not change it." : "The assigned score is included in the faculty total only after you approve the document below."}</p>`;
   },
 
   contributionHtml: function (scored, doc) {

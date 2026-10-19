@@ -26,11 +26,20 @@ DATE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# A rating counts only when a scoring label introduces it. A bare percentage,
+# a page number, or the word "score" on its own is not a rating.
 RATING_PATTERNS = [
-    re.compile(r"(?:osetr|osefr|overall(?:\s+set|\s+sef)?\s+rating|rating summary)[:\s]+(\d+(?:\.\d+)?)", re.I),
-    re.compile(r"(?:overall|rating|score)[:\s]+(\d+(?:\.\d+)?)\s*(?:%|percent)?", re.I),
-    re.compile(r"(\d+(?:\.\d+)?)\s*%\s*(?:rating|score|osetr|osefr)?", re.I),
+    re.compile(
+        r"(?:osetr|osefr|overall(?:\s+(?:set|sef))?\s+rating|set rating|sef rating|"
+        r"rating summary|client satisfaction(?:\s+rating)?)\s*[:\-]?\s*(\d+(?:\.\d+)?)",
+        re.I,
+    ),
 ]
+RATING_HEADER = re.compile(
+    r"(?i)^(?:osetr|osefr|overall(?:\s+(?:set|sef))?\s+rating|set rating|sef rating|"
+    r"rating summary|client satisfaction(?:\s+rating)?|overall rating)\s*:?\s*$"
+)
+RATING_VALUE = re.compile(r"^(\d{1,3}(?:\.\d+)?)(?:\s*(?:%|percent))?(?:\s*/\s*100)?\b")
 
 ISSN_PATTERN = re.compile(r"\b\d{4}[- ]?\d{3}[\dxX]\b|\bissn\b", re.I)
 ISBN_PATTERN = re.compile(r"\b(?:ISBN(?:-1[03])?:?\s*)?(?:97[89][- ]?)?\d{1,5}[- ]?\d{1,7}[- ]?\d{1,7}[- ]?\d[\dXx]\b")
@@ -54,6 +63,76 @@ NAME_LINE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?im)^(?:member name|name of member)\s*[:\-]\s*(.+)$"), "Member Name"),
     (re.compile(r"(?im)^(?:signatory|representative)\s*[:\-]\s*(.+)$"), "Signatory"),
     (re.compile(r"(?im)^(?:prepared by|submitted by)\s*[:\-]\s*(.+)$"), "Prepared by"),
+    (re.compile(r"(?im)^(?:performer|dancer|actor|actress)\s*[:\-]\s*(.+)$"), "Performer"),
+    (re.compile(r"(?im)^(?:conductor)\s*[:\-]\s*(.+)$"), "Conductor"),
+]
+
+# Label on its own line, value on the next line. Includes the short "Faculty"
+# heading used on evaluation summaries, mapped to the Faculty Name identity label.
+STACKED_LABELS: list[tuple[str, str]] = [
+    ("faculty name", "Faculty Name"),
+    ("evaluated faculty", "Evaluated Faculty"),
+    ("name of faculty", "Faculty Name"),
+    ("employee name", "Employee Name"),
+    ("name of employee", "Employee Name"),
+    ("participant name", "Participant Name"),
+    ("name of participant", "Participant Name"),
+    ("participant", "Participant Name"),
+    ("awardee", "Awardee"),
+    ("recipient", "Awardee"),
+    ("honoree", "Awardee"),
+    ("author", "Author(s)"),
+    ("authors", "Author(s)"),
+    ("co-author", "Co-author(s)"),
+    ("co-authors", "Co-author(s)"),
+    ("researcher", "Researcher"),
+    ("researchers", "Researcher"),
+    ("inventor", "Inventor(s)"),
+    ("inventors", "Inventor(s)"),
+    ("developer", "Developer(s)"),
+    ("developers", "Developer(s)"),
+    ("contributor", "Contributor(s)"),
+    ("contributors", "Contributor(s)"),
+    ("project leader", "Project Leader"),
+    ("project head", "Project Head"),
+    ("adviser", "Adviser"),
+    ("advisor", "Adviser"),
+    ("thesis adviser", "Adviser"),
+    ("panel member", "Panel Member"),
+    ("panelist", "Panel Member"),
+    ("examiner", "Panel Member"),
+    ("mentor", "Mentor"),
+    ("coach", "Coach"),
+    ("resource person", "Resource Person"),
+    ("speaker", "Resource Person"),
+    ("presenter", "Resource Person"),
+    ("member name", "Member Name"),
+    ("signatory", "Signatory"),
+    ("prepared by", "Prepared by"),
+    ("faculty", "Faculty Name"),
+    ("performer", "Performer"),
+    ("dancer", "Performer"),
+    ("conductor", "Conductor"),
+]
+_STACKED_LOOKUP = {phrase: label for phrase, label in STACKED_LABELS}
+
+# "Author Maria Santos" without a colon, limited to a short capitalized name.
+def _capitalized_name(value: str) -> bool:
+    parts = [part for part in value.split() if part]
+    return bool(parts) and all(part[0].isupper() for part in parts)
+
+
+LOOSE_NAME_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\b(?:faculty name|evaluated faculty)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Faculty Name"),
+    (re.compile(r"\b(?:employee name)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Employee Name"),
+    (re.compile(r"\b(?:participant name|participant)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Participant Name"),
+    (re.compile(r"\b(?:awardee|recipient)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Awardee"),
+    (re.compile(r"\b(?:authors?|co-?authors?)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Author(s)"),
+    (re.compile(r"\b(?:inventors?|co-?inventors?)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Inventor(s)"),
+    (re.compile(r"\b(?:developers?)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Developer(s)"),
+    (re.compile(r"\b(?:project leader|project head)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Project Leader"),
+    (re.compile(r"\b(?:performer|dancer)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Performer"),
+    (re.compile(r"\b(?:conductor)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Conductor"),
 ]
 
 INLINE_NAME_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -73,11 +152,32 @@ INLINE_NAME_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?i)(?:resource person|speaker|presenter)\s*[:\-]\s*([^\n\r;]+)"), "Resource Person"),
     (re.compile(r"(?i)(?:consultant)\s*[:\-]\s*([^\n\r;]+)"), "Consultant"),
     (re.compile(r"(?i)(?:member name)\s*[:\-]\s*([^\n\r;]+)"), "Member Name"),
+    (re.compile(r"(?i)(?:performer|dancer)\s*[:\-]\s*([^\n\r;]+)"), "Performer"),
+    (re.compile(r"(?i)(?:conductor)\s*[:\-]\s*([^\n\r;]+)"), "Conductor"),
 ]
 
 
+# These roles appear on a document without being the faculty member it is about.
+# They count only when an indicator's own identity labels ask for them, such as a linkage signatory.
+_NON_SUBJECT_LABELS = {"Prepared by", "Submitted by", "Signatory", "Representative"}
+
+
+def _trim_name_phrase(raw: str) -> str:
+    """Keep a name and drop a following sentence. Initials such as C. stay."""
+    return re.split(r"(?<!\b[A-Za-z])\.\s+", raw or "", maxsplit=1)[0].strip()
+
+
 def _split_names(raw: str) -> list[str]:
-    return [part.strip() for part in re.split(r"[;/]| and ", raw) if part.strip()]
+    # A value stays on its own line. The following line is a different field.
+    first_line = (raw or "").split("\n", 1)[0].split("\r", 1)[0]
+    first_line = _trim_name_phrase(first_line)
+    return [part.strip(" .") for part in re.split(r"[;/]| and ", first_line) if part.strip(" .")]
+
+
+def _counts_as_subject(label: str, profile) -> bool:
+    if label in profile.preferred_ocr_labels or label == profile.display_label:
+        return True
+    return label not in _NON_SUBJECT_LABELS
 
 
 def _normalize_person_name(name: str) -> str:
@@ -86,14 +186,31 @@ def _normalize_person_name(name: str) -> str:
     return cleaned
 
 
+def _name_tokens(name: str) -> list[str]:
+    tokens = []
+    for part in re.split(r"[\s,]+", _normalize_person_name(name)):
+        part = part.strip(".")
+        if not part or re.fullmatch(r"[a-z]", part):
+            continue
+        tokens.append(part)
+    return tokens
+
+
 def _names_similar(left: str, right: str) -> bool:
+    """Match the same person. A shorter fragment is not a match."""
     a = _normalize_person_name(left)
     b = _normalize_person_name(right)
     if not a or not b:
         return False
-    if a == b or a in b or b in a:
+    if a == b:
         return True
-    return SequenceMatcher(None, a, b).ratio() >= 0.84
+    left_tokens = _name_tokens(left)
+    right_tokens = _name_tokens(right)
+    if len(left_tokens) >= 2 and left_tokens == right_tokens:
+        return True
+    if len(left_tokens) >= 2 and len(left_tokens) == len(right_tokens):
+        return SequenceMatcher(None, a, b).ratio() >= 0.84
+    return False
 
 
 def preferred_identity_label(indicator_id: str | None) -> str:
@@ -109,24 +226,63 @@ def _label_priority(label: str, profile) -> int:
     return len(preferred) + 2
 
 
+def _label_key(line: str) -> str:
+    return re.sub(r"[:\-\s]+$", "", (line or "").strip().lower())
+
+
+def _looks_like_person(line: str) -> bool:
+    cleaned = (line or "").strip(" .")
+    if not cleaned or len(cleaned) > 80 or any(char.isdigit() for char in cleaned):
+        return False
+    if _label_key(cleaned) in _STACKED_LOOKUP:
+        return False
+    parts = cleaned.split()
+    if not 1 <= len(parts) <= 5:
+        return False
+    return all(re.match(r"[A-Za-z][A-Za-z.'-]*$", part) for part in parts)
+
+
+def _stacked_names(ocr_text: str) -> list[tuple[str, list[str]]]:
+    """Read a label line whose value is the next non-empty line."""
+    lines = [line.strip() for line in (ocr_text or "").splitlines()]
+    found = []
+    for index, line in enumerate(lines):
+        label = _STACKED_LOOKUP.get(_label_key(line))
+        if not label or ":" in line or "-" in line.strip()[-1:]:
+            # Same-line "Label: value" is handled by the line patterns.
+            if ":" in line:
+                continue
+        if not label:
+            continue
+        for follower in lines[index + 1 : index + 3]:
+            if not follower:
+                continue
+            if _looks_like_person(follower):
+                found.append((label, _split_names(follower)))
+            break
+    return found
+
+
 def extract_named_parties(
     *,
     ocr_text: str,
     upload_author: str | None,
     indicator_id: str | None,
-) -> tuple[str, list[str]]:
-    """Return the best identity label and extracted names for the classified indicator."""
+) -> tuple[str, list[str], bool]:
+    """Return the identity label, names, and whether a name was read from the document.
+
+    upload_author is ignored. The logged-in account is compared later, and a name
+    typed into the upload form cannot stand in for either side.
+    """
+    del upload_author
     profile = resolve_identity_profile(indicator_id)
     display = profile.display_label
     found: list[tuple[int, str, list[str]]] = []
 
     def register(label: str, names: list[str]) -> None:
-        cleaned = [name for name in names if name]
+        cleaned = [name.strip(" .") for name in names if name and name.strip(" .")]
         if cleaned:
             found.append((_label_priority(label, profile), label, cleaned))
-
-    if upload_author and upload_author.strip():
-        register("Upload form name", _split_names(upload_author))
 
     for pattern, label in NAME_LINE_PATTERNS:
         for line in (ocr_text or "").splitlines():
@@ -139,20 +295,34 @@ def extract_named_parties(
         if match:
             register(label, _split_names(match.group(1)))
 
-    if not found:
-        return display, []
+    for pattern, label in LOOSE_NAME_PATTERNS:
+        match = pattern.search(ocr_text or "")
+        if match and _capitalized_name(match.group(1)):
+            register(label, _split_names(match.group(1)))
 
-    found.sort(key=lambda item: item[0])
-    primary_label = found[0][1]
+    for label, names in _stacked_names(ocr_text or ""):
+        register(label, names)
+
+    # The name typed on the upload form is not the logged-in faculty member and is not
+    # the person the document is about. Only a subject label printed on the document counts.
+    subject_hits = [item for item in found if _counts_as_subject(item[1], profile)]
+    if not subject_hits:
+        return display, [], False
+
+    subject_hits.sort(key=lambda item: item[0])
+    from_document = True
+    pool = subject_hits
+    primary_label = pool[0][1]
     names: list[str] = []
-    for _, item_label, item_names in found:
+    for _, item_label, item_names in pool:
         if item_label == primary_label or item_label in profile.preferred_ocr_labels:
             for name in item_names:
                 if name not in names:
                     names.append(name)
     if not names:
-        names = found[0][2]
-    return primary_label if primary_label != "Upload form name" else display, names
+        names = pool[0][2]
+    shown = primary_label if primary_label != "Upload form name" else display
+    return shown, names, from_document
 
 
 def extract_fields(
@@ -164,7 +334,7 @@ def extract_fields(
 ) -> dict:
     cleaned_title = (title or "").strip()
     profile = resolve_identity_profile(indicator_id)
-    identity_label, named_parties = extract_named_parties(
+    identity_label, named_parties, name_from_document = extract_named_parties(
         ocr_text=ocr_text,
         upload_author=author,
         indicator_id=indicator_id,
@@ -182,6 +352,7 @@ def extract_fields(
         "identity_label": identity_label or profile.display_label,
         "identity_mode": profile.mode,
         "named_parties": named_parties,
+        "name_from_document": name_from_document,
         "date": date_value,
         "issn": bool(ISSN_PATTERN.search(haystack or "")),
         "isbn": bool(ISBN_PATTERN.search(haystack or "")),
@@ -189,18 +360,44 @@ def extract_fields(
     }
 
 
+def _normalize_rating_digits(text: str) -> str:
+    """Turn a misread zero (letter O beside a digit) back into 0. Leaves words alone."""
+    return re.sub(r"(?<=\d)[Oo]|[Oo](?=\d)", "0", text)
+
+
+def _rating_value(raw: str) -> float | None:
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    if 0 <= value <= 100:
+        return value
+    return None
+
+
 def extract_rating(text: str | None) -> float | None:
     if not text:
         return None
+    normalized = _normalize_rating_digits(text)
     for pattern in RATING_PATTERNS:
-        match = pattern.search(text)
+        match = pattern.search(normalized)
         if match:
-            try:
-                value = float(match.group(1))
-            except ValueError:
-                continue
-            if 0 <= value <= 100:
+            value = _rating_value(match.group(1))
+            if value is not None:
                 return value
+    lines = [line.strip() for line in normalized.splitlines()]
+    for index, line in enumerate(lines):
+        if not RATING_HEADER.match(line):
+            continue
+        for follower in lines[index + 1 : index + 3]:
+            if not follower:
+                continue
+            match = RATING_VALUE.match(follower)
+            if match:
+                value = _rating_value(match.group(1))
+                if value is not None:
+                    return value
+            break
     return None
 
 

@@ -154,9 +154,7 @@ class _DocumentDetailsBody extends StatelessWidget {
                           StatusBadge(status: document.status, compact: true),
                           _Pill(
                             icon: Icons.stars_outlined,
-                            label: document.points > 0
-                                ? '${document.points} pts'
-                                : 'No points yet',
+                            label: 'Credited: ${document.creditedLabel}',
                             color: AppColors.navy,
                             soft: AppColors.infoSoft,
                           ),
@@ -200,6 +198,14 @@ class _DocumentDetailsBody extends StatelessWidget {
                     value: document.extractedInfo['Verification tier']!,
                   ),
                 _FactRow(
+                  label: 'Provisional Score',
+                  value: document.provisionalLabel,
+                ),
+                _FactRow(
+                  label: 'Credited Points',
+                  value: document.creditedLabel,
+                ),
+                _FactRow(
                   label: 'File',
                   value: document.hasFile ? 'On file' : 'Unavailable',
                   last: true,
@@ -217,7 +223,9 @@ class _DocumentDetailsBody extends StatelessWidget {
                 children: [
                   for (final entry in scoring.entries)
                     if (entry.key != 'Scoring formula' &&
-                        entry.key != 'Document type')
+                        entry.key != 'Document type' &&
+                        entry.key != 'Contribution score' &&
+                        entry.key != 'Provisional score')
                       _ScoreChip(label: entry.key, value: entry.value),
                 ],
               ),

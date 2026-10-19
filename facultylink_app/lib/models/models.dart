@@ -128,6 +128,21 @@ class FacultyDocument {
   final bool hasFile;
   final String? fileUrl;
 
+  bool get creditsPoints =>
+      status == DocumentStatus.validated || status == DocumentStatus.systemApproved;
+
+  String get creditedLabel {
+    if (!creditsPoints) return '0';
+    final verified = (extractedInfo['Verified score'] ?? '').trim();
+    if (verified.isNotEmpty) return verified;
+    return '$points';
+  }
+
+  String get provisionalLabel {
+    final value = (extractedInfo['Provisional score'] ?? '').trim();
+    return value.isEmpty ? '—' : value;
+  }
+
   bool get canResubmit =>
       status == DocumentStatus.needsRevision ||
       status == DocumentStatus.invalid;

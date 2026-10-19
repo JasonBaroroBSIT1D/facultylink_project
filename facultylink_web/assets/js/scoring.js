@@ -52,8 +52,10 @@ FL.scoring = {
     let total = 0;
     kras.forEach(function (kra) {
       const percent = resolved.weights[kra.id] || 0;
-      const earned = (Number(kra.earned) || 0) + (Number(kra.bonus) || 0);
-      total += earned * (percent / 100);
+      const capped = kra.credited != null
+        ? Number(kra.credited)
+        : Math.min(Number(kra.maxPoints) || 0, (Number(kra.earned) || 0) + (Number(kra.bonus) || 0));
+      total += capped * (percent / 100);
     });
     return {
       band: resolved.band,
@@ -248,7 +250,11 @@ FL.scoring = {
       criterion.documents.push({ id: doc.id, name: doc.name, points: points });
     });
 
-    Object.keys(bestByIndicator).forEach(function (indicatorKey) {
+    const verifiedKeys = Object.keys(bestByIndicator).sort(function (left, right) {
+      const difference = bestByIndicator[right].review.finalScore - bestByIndicator[left].review.finalScore;
+      return difference || left.localeCompare(right);
+    });
+    verifiedKeys.forEach(function (indicatorKey) {
       const entry = bestByIndicator[indicatorKey];
       const review = entry.review;
       const doc = entry.doc;
@@ -256,9 +262,25 @@ FL.scoring = {
       if (!kra) return;
       const criterion = kra.criteria.find(function (item) { return item.id === review.criterionId; }) || kra.criteria[0];
       if (!criterion) return;
-      criterion.earned = FL.scoring.round(criterion.earned + review.finalScore);
-      criterion.locked = FL.scoring.round(criterion.locked + review.finalScore);
-      criterion.documents.push({ id: doc.id, name: doc.name, points: review.finalScore, provisional: false });
+      const found = review.indicatorId ? FL.rules.findIndicator(review.indicatorId) : null;
+      let points = review.finalScore;
+      if (found && typeof found.indicator.maxPoints === "number") {
+        points = Math.min(points, found.indicator.maxPoints);
+      }
+      const group = found && found.indicator.groupMax;
+      if (group) {
+        const key = facultyId + ":" + group.group;
+        const used = groupTotals[key] || 0;
+        const room = Math.max(0, group.max - used);
+        points = Math.min(points, room);
+        groupTotals[key] = used + points;
+      }
+      const roomInCriterion = Math.max(0, criterion.maxPoints - criterion.earned);
+      points = FL.scoring.round(Math.min(points, roomInCriterion));
+      if (points <= 0) return;
+      criterion.earned = FL.scoring.round(criterion.earned + points);
+      criterion.locked = FL.scoring.round(criterion.locked + points);
+      criterion.documents.push({ id: doc.id, name: doc.name, points: points, provisional: false });
     });
 
     Object.keys(provisionalByIndicator).forEach(function (indicatorKey) {
@@ -269,43 +291,29 @@ FL.scoring = {
       if (!kra) return;
       const criterion = kra.criteria.find(function (item) { return item.id === scored.criterion.id; }) || kra.criteria[0];
       if (!criterion) return;
-      let points = scored.finalScore;
-      const group = scored.indicator.groupMax;
-      if (group) {
-        const key = facultyId + ":" + group.group;
-        const used = groupTotals[key] || 0;
-        const room = Math.max(0, group.max - used);
-        points = Math.min(points, room);
-        groupTotals[key] = used + points;
-      }
-      const roomInCriterion = Math.max(0, criterion.maxPoints - criterion.earned);
-      points = FL.scoring.round(Math.min(points, roomInCriterion));
-      criterion.earned = FL.scoring.round(criterion.earned + points);
-      criterion.documents.push({ id: entry.doc.id, name: entry.doc.name, points: points, provisional: true });
+      criterion.documents.push({ id: entry.doc.id, name: entry.doc.name, points: 0, provisional: true });
       kra.provisional = true;
     });
 
     kras.forEach(function (kra) {
-      let lockedRegular = 0;
-      let openRegular = 0;
-      let lockedBonus = 0;
-      let openBonus = 0;
+      let regular = 0;
+      let bonus = 0;
       kra.criteria.forEach(function (criterion) {
-        const held = criterion.locked || 0;
-        const fresh = Math.max(0, criterion.earned - held);
+        criterion.earned = FL.scoring.round(Math.min(criterion.earned, criterion.maxPoints));
+        criterion.locked = FL.scoring.round(Math.min(criterion.locked || 0, criterion.earned));
         if (criterion.bonus) {
-          lockedBonus += held;
-          openBonus += fresh;
+          bonus += criterion.earned;
         } else {
-          lockedRegular += held;
-          openRegular += fresh;
+          regular += criterion.earned;
         }
       });
-      kra.earned = FL.scoring.round(lockedRegular + Math.min(Math.max(0, kra.maxPoints - lockedRegular), openRegular));
-      kra.bonus = FL.scoring.round(lockedBonus + Math.min(Math.max(0, kra.bonusMax - lockedBonus), openBonus));
+      const bonusCeiling = kra.bonusMax || 0;
+      kra.earned = FL.scoring.round(Math.min(kra.maxPoints, regular));
+      kra.bonus = FL.scoring.round(Math.min(bonusCeiling, bonus));
+      kra.credited = FL.scoring.round(Math.min(kra.maxPoints, kra.earned + kra.bonus));
     });
 
-    const rawTotal = this.round(kras.reduce(function (sum, kra) { return sum + kra.earned + kra.bonus; }, 0));
+    const rawTotal = this.round(kras.reduce(function (sum, kra) { return sum + (kra.credited || 0); }, 0));
     return { kras: kras, rawTotal: rawTotal, total: rawTotal, documents: documents };
   },
 
@@ -315,8 +323,8 @@ FL.scoring = {
     const weighted = this.weightedScore(aggregate.kras, faculty ? faculty.rank : "");
     aggregate.weightBand = weighted.band;
     aggregate.appliedWeights = weighted.weights;
-    aggregate.weightedScore = weighted.score;
-    aggregate.total = weighted.score;
+    aggregate.weightedScore = Math.round(weighted.score);
+    aggregate.total = aggregate.weightedScore;
     const gaps = [];
     aggregate.documents.forEach(function (doc) {
       const scored = FL.scoring.scoreDocument(doc);
@@ -334,7 +342,7 @@ FL.scoring = {
       } else if (doc.status === "rejected") {
         gaps.push({ tone: "danger", text: doc.id + " was rejected and is not included in the estimate." });
       } else if (doc.status === "pending-review" || doc.status === "pendingReview") {
-        gaps.push({ tone: "info", text: doc.id + " is pending review. Its score is included as a provisional estimate until a reviewer decides." });
+        gaps.push({ tone: "info", text: doc.id + " is pending review. Its score is not included in the credited total until a reviewer decides." });
       }
       if (validation.evidenceStatus === "missing") {
         gaps.push({ tone: "danger", text: doc.id + " is missing required documentary evidence." });

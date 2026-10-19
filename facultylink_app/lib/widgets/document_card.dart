@@ -25,7 +25,10 @@ class DocumentCard extends StatelessWidget {
     final meta = [
       if (criterionLabel != null && criterionLabel!.isNotEmpty) criterionLabel!,
       date,
-      if (document.points > 0) '${document.points} pts',
+      if (document.creditsPoints)
+        'Credited: ${document.creditedLabel} pts'
+      else
+        'Credited: 0',
     ].join(' · ');
 
     return Material(

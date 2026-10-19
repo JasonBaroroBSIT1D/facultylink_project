@@ -2554,7 +2554,6 @@ FL.rules.applySettings = function (settings) {
         if (!update) return;
         if (typeof update.maxPoints === "number") {
           indicator.maxPoints = update.maxPoints;
-          if (indicator.groupMax) indicator.groupMax.max = update.maxPoints;
         }
         if (indicator.formula && indicator.formula.type === "rating" && typeof update.multiplier === "number") {
           indicator.formula.multiplier = update.multiplier;

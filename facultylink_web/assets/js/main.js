@@ -1,6 +1,38 @@
 window.FL = window.FL || {};
 FL.pages = FL.pages || {};
 
+/* Responsive helpers: label table cells with their column header so that, on small
+   screens, CSS can show each row as a stacked card. Works for every table the pages render. */
+FL.responsive = {
+  labelTables: function (root) {
+    (root || document).querySelectorAll("table.data").forEach(function (table) {
+      const heads = Array.prototype.map.call(table.querySelectorAll("thead th"), function (th) {
+        return th.textContent.trim();
+      });
+      if (!heads.length) return;
+      table.querySelectorAll("tbody tr").forEach(function (row) {
+        Array.prototype.forEach.call(row.children, function (cell, index) {
+          if (cell.tagName === "TD" && heads[index] && cell.getAttribute("data-label") !== heads[index]) {
+            cell.setAttribute("data-label", heads[index]);
+          }
+        });
+      });
+    });
+  },
+  watch: function (host) {
+    if (!host) return;
+    const run = function () { FL.responsive.labelTables(host); };
+    run();
+    if (!window.MutationObserver) return;
+    let queued = false;
+    new MutationObserver(function () {
+      if (queued) return;
+      queued = true;
+      window.requestAnimationFrame(function () { queued = false; run(); });
+    }).observe(host, { childList: true, subtree: true });
+  }
+};
+
 FL.nav = {
   administrator: [
     { id: "admin-dashboard", href: "dashboard.html", label: "Dashboard" },
@@ -61,7 +93,10 @@ FL.layout = {
     const app = document.getElementById("app");
     app.innerHTML = `
       <div class="shell">
-        <aside class="sidebar" id="sidebar">
+        <aside class="sidebar" id="sidebar" aria-label="Site navigation">
+          <button class="drawer-close" type="button" id="drawer-close" aria-label="Close navigation">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
           <a class="brand" href="${FL.esc(items[0].href)}">
             <span class="brand-crest"><img src="../assets/images/facultylink-mark.png" alt=""></span>
             <span class="brand-copy"><strong>Faculty<span>Link</span></strong><small>${FL.esc(FL.institution.campus)}</small></span>
@@ -79,13 +114,13 @@ FL.layout = {
         <div class="backdrop" id="backdrop" hidden></div>
         <div class="workspace">
           <header class="topbar">
-            <button class="icon-btn menu-btn" type="button" id="menu-btn" aria-label="Open navigation">Menu</button>
+            <button class="icon-btn menu-btn" type="button" id="menu-btn" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"><span class="burger" aria-hidden="true"></span></button>
             <nav class="crumbs" aria-label="Breadcrumb">${crumbs.map(function (part, index) {
               return `<span>${FL.esc(part)}</span>${index < crumbs.length - 1 ? "<span class='sep'>/</span>" : ""}`;
             }).join("")}</nav>
             <div class="top-actions">
               <div class="notice-wrap">
-                <button class="icon-btn" type="button" id="notice-btn" aria-label="Notifications">${unread ? `<span class="dot">${unread}</span>` : ""}Alerts</button>
+                <button class="icon-btn" type="button" id="notice-btn" aria-label="Notifications">${unread ? `<span class="dot">${unread}</span>` : ""}<svg class="bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span class="btn-text">Alerts</span></button>
                 <div class="notice-pop" id="notice-pop" hidden></div>
               </div>
               <a class="user-chip" href="profile.html">
@@ -100,18 +135,33 @@ FL.layout = {
       </div>`;
     const sidebar = document.getElementById("sidebar");
     const backdrop = document.getElementById("backdrop");
-    const closeMenu = function () {
-      sidebar.classList.remove("is-open");
-      backdrop.hidden = true;
+    const menuBtn = document.getElementById("menu-btn");
+    const drawerQuery = window.matchMedia("(max-width: 1023px)");
+    const setDrawer = function (open, restoreFocus) {
+      sidebar.classList.toggle("is-open", open);
+      backdrop.hidden = !open;
+      document.body.classList.toggle("nav-open", open);
+      menuBtn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        document.getElementById("drawer-close").focus();
+      } else if (restoreFocus && drawerQuery.matches) {
+        menuBtn.focus();
+      }
     };
-    document.getElementById("menu-btn").addEventListener("click", function () {
-      sidebar.classList.add("is-open");
-      backdrop.hidden = false;
-    });
+    const closeMenu = function () { setDrawer(false, true); };
+    menuBtn.addEventListener("click", function () { setDrawer(true); });
+    document.getElementById("drawer-close").addEventListener("click", closeMenu);
     backdrop.addEventListener("click", closeMenu);
     document.querySelectorAll(".side-nav a").forEach(function (link) {
-      link.addEventListener("click", closeMenu);
+      link.addEventListener("click", function () { setDrawer(false, false); });
     });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && sidebar.classList.contains("is-open")) closeMenu();
+    });
+    const onWide = function (query) { if (!query.matches) setDrawer(false, false); };
+    if (drawerQuery.addEventListener) drawerQuery.addEventListener("change", function (query) { if (!query.matches) setDrawer(false, false); });
+    else if (drawerQuery.addListener) drawerQuery.addListener(onWide);
+    FL.responsive.watch(document.getElementById("page"));
     const logout = function () {
       FL.ui.modal({
         title: "Log out of FacultyLink",
@@ -155,6 +205,10 @@ FL.boot = function () {
     }
     if (role && session.role !== role) {
       window.location.replace(FL.auth.home(session.role));
+      return null;
+    }
+    if (session.mustChangePassword) {
+      FL.auth.requirePasswordChange();
       return null;
     }
     return FL.store.load().then(function () {

@@ -241,8 +241,8 @@ FL.faculty = {
         <div class="stack">
           ${sim.aggregate.kras.map(function (kra) {
             return `<article class="card">
-              <div class="card-head"><h2>${FL.esc(kra.code)} — ${FL.esc(kra.name)}</h2><strong>${kra.earned}${kra.bonus ? " + " + kra.bonus + " bonus" : ""} / ${kra.maxPoints}</strong></div>
-              ${FL.ui.progress(kra.earned, kra.maxPoints, "Approved points within the KRA maximum")}
+              <div class="card-head"><h2>${FL.esc(kra.code)} — ${FL.esc(kra.name)}</h2><strong>${kra.credited} / ${kra.maxPoints}</strong></div>
+              ${FL.ui.progress(kra.credited, kra.maxPoints, "Approved points within the KRA maximum")}
               <div class="table-wrap"><table class="data">
                 <thead><tr><th>Criterion</th><th>Maximum</th><th>Approved points</th></tr></thead>
                 <tbody>${kra.criteria.map(function (criterion) {
@@ -270,7 +270,7 @@ FL.faculty = {
             const fields = ["Title", "Author", "Date"].filter(function (name, index) {
               return [result.fields.title, result.fields.author, result.fields.date][index];
             });
-            const klass = result.classification.status === "pending" ? "OCR pending" : result.classification.detected ? result.classification.detected.label : "Cannot classify";
+            const klass = (doc.extractedInfo && doc.extractedInfo["Automatically identified indicator"]) || (result.classification.status === "pending" ? "OCR pending" : result.classification.detected ? result.classification.detected.label : "Cannot classify");
             return `<tr>
               <td>${FL.esc(doc.id)}</td>
               <td>${fields.length === 3 ? FL.ui.badge("valid", "Complete") : FL.ui.badge("invalid", fields.length ? fields.join(", ") + " only" : "Missing")}</td>
@@ -322,7 +322,7 @@ FL.faculty = {
         <article class="stat"><span>Raw KRA points</span><strong>${sim.aggregate.rawTotal != null ? sim.aggregate.rawTotal : "—"}</strong><small>Sum before rank weights</small></article>
         ${sim.aggregate.kras.map(function (kra) {
           const weight = sim.aggregate.appliedWeights ? sim.aggregate.appliedWeights[kra.id] : null;
-          return `<article class="stat"><span>${FL.esc(kra.code)}</span><strong>${kra.earned}${kra.bonus ? " + " + kra.bonus : ""}</strong><small>Maximum ${kra.maxPoints}${kra.bonusMax ? " + " + kra.bonusMax + " bonus" : ""}${weight != null ? " · Weight " + weight + "%" : ""}</small></article>`;
+          return `<article class="stat"><span>${FL.esc(kra.code)}</span><strong>${kra.credited}</strong><small>Maximum ${kra.maxPoints}${weight != null ? " · Weight " + weight + "%" : ""}</small></article>`;
         }).join("")}
       </div>
       <article class="card">

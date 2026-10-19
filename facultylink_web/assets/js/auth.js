@@ -46,6 +46,46 @@ FL.auth = {
     FL.api.send("POST", "/api/logout").finally(function () {
       window.location.href = loginUrl;
     });
+  },
+
+  requirePasswordChange: function () {
+    FL.ui.modal({
+      title: "Change temporary password",
+      confirmLabel: "Update password",
+      cancelLabel: "Sign out",
+      body: `
+        <p>This sign-in used a temporary password. Set a new password before opening reviewer pages.</p>
+        <label class="field"><span>Temporary password</span><input id="current-password" type="password" autocomplete="current-password"></label>
+        <label class="field"><span>New password</span><input id="new-password" type="password" autocomplete="new-password"></label>
+        <label class="field"><span>Confirm new password</span><input id="confirm-password" type="password" autocomplete="new-password"></label>
+        <p class="note" id="password-change-error" hidden></p>`,
+      onConfirm: function () {
+        const current = document.getElementById("current-password").value;
+        const next = document.getElementById("new-password").value;
+        const again = document.getElementById("confirm-password").value;
+        const error = document.getElementById("password-change-error");
+        if (next !== again) {
+          error.hidden = false;
+          error.textContent = "The new passwords do not match.";
+          return false;
+        }
+        error.hidden = true;
+        FL.api.send("POST", "/api/account/password", {
+          currentPassword: current,
+          newPassword: next
+        }).then(function () {
+          FL.ui.closeModal();
+          window.location.reload();
+        }).catch(function (err) {
+          error.hidden = false;
+          error.textContent = err.message || "The password was not changed.";
+        });
+        return false;
+      },
+      onClose: function (ok) {
+        if (!ok) FL.auth.signOut();
+      }
+    });
   }
 };
 

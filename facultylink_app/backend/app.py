@@ -233,7 +233,7 @@ def apply_review(
             provisional = float(info.get("Provisional score") or doc.base_points or 0)
         except (TypeError, ValueError):
             provisional = float(doc.base_points or 0)
-        doc.points = int(round(provisional))
+        doc.points = 0
         doc.reviewer_feedback = feedback or "Reopened. The provisional score is visible again until the next decision."
         doc.validation_result = "Reopened for review."
         doc.extracted_info = info
@@ -777,6 +777,11 @@ def reprocess_document(user, public_id):
     doc = Document.query.filter_by(user_id=user.id, public_id=public_id).first()
     if not doc:
         return jsonify({"error": "Document not found."}), 404
+    # A reviewer decision and its score stay as recorded. Reprocessing must not replace them.
+    if doc.status in {"validated", "needsRevision", "invalid"} or doc.reviewer_score is not None or doc.decided_at or doc.review_snapshot:
+        return jsonify({
+            "error": "This document already has a reviewer decision, so it was left unchanged."
+        }), 409
     existing = Document.query.filter_by(user_id=user.id).filter(Document.public_id != doc.public_id).all()
     processed = process_upload(
         title=doc.title,

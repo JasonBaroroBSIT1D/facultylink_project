@@ -117,7 +117,7 @@ def test_process_upload_uses_indicator_points():
     )
     assert result["status"] == "pendingReview"
     assert result["base_points"] == 30
-    assert result["points"] == 30
+    assert result["points"] == 0
     assert float(result["extracted_info"]["Provisional score"]) == 30
 
 

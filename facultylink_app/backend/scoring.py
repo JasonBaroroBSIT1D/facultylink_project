@@ -7,13 +7,14 @@ from kra_config import (
     DEFAULT_KRA_MAX,
     SCORING_FORMULA,
     WEIGHTED_FORMULA,
+    credited_kra_totals,
     document_earned_points,
     final_score,
     load_active_kra_config,
     weighted_final_score,
     weights_for_rank,
 )
-from ocr import extract_text
+from ocr import extract_document
 
 VERIFIED_STATUSES = {"validated", "approved", "system_approved"}
 PROVISIONAL_STATUSES = {"pendingReview", "pending-review", "processing"}
@@ -189,9 +190,11 @@ def process_upload(
         validate_scoring_inputs,
         verify_identity,
     )
+    from indicator_identity import resolve_identity_profile
     from kra_catalog import find_indicator
 
-    text = extract_text(file_path)
+    extraction = extract_document(file_path)
+    text = extraction.text
     combined = " ".join(part for part in (title, author, text) if part)
     kra, ambiguous = classify_kra(combined, declared_kra)
     provisional_authors = author_count(author)
@@ -253,7 +256,8 @@ def process_upload(
     if not auth_ok and auth_reason:
         review_reasons.append(auth_reason)
 
-    identity_name = (uploader_name or author or "").strip() or None
+    # The logged-in faculty member comes from the authenticated profile, not the upload form.
+    identity_name = (uploader_name or "").strip() or None
     identity_ok, identity_label, identity_message = verify_identity(
         resolved_indicator,
         uploader_name=identity_name,
@@ -286,7 +290,26 @@ def process_upload(
     if ambiguous:
         review_reasons.append("Extracted text matches more than one auxiliary KRA keyword rule.")
     if not text.strip():
-        review_reasons.append("OCR did not extract readable text from the file.")
+        review_reasons.append(extraction.note or "OCR did not extract readable text from the file.")
+    elif not extraction.reliable:
+        review_reasons.append(extraction.note or "OCR quality is too low for automatic approval.")
+
+    identity_profile = resolve_identity_profile(resolved_indicator)
+    if resolved_indicator and (
+        identity_profile.require_named_party or identity_profile.uploader_must_match
+    ):
+        if not fields.get("name_from_document"):
+            review_reasons.append("The identity name was not read from the document text.")
+            identity_ok = False
+
+    evidence = (rule_for(resolved_indicator) or {}).get("evidence") or []
+    evidence_reason = None
+    if resolved_indicator and len(evidence) != 1:
+        evidence_reason = (
+            "Annex A requires documentary evidence that cannot be confirmed from this file alone, "
+            "so a reviewer must verify it before points are credited."
+        )
+        review_reasons.append(evidence_reason)
 
     auto_approve = (
         bool(criterion_id)
@@ -296,15 +319,20 @@ def process_upload(
         and scoring_ok
         and auth_ok
         and identity_ok
+        and evidence_reason is None
         and duplicate_of is None
         and contradiction is None
         and text.strip()
+        and extraction.reliable
         and scored["matched"]
         and scored["base_points"] is not None
         and not scored.get("flagged")
     )
 
     status = "system_approved" if auto_approve else "pendingReview"
+    if not identity_ok:
+        mismatch = identity_message or "The document identity does not match the logged-in faculty member."
+        review_reasons = [mismatch] + [reason for reason in review_reasons if reason != mismatch]
     primary_reason = review_reasons[0] if review_reasons else "Reviewer validation required."
     validation = (
         "System approved after OCR, indicator classification, and field validation."
@@ -331,6 +359,11 @@ def process_upload(
         "Extracted names": "; ".join(fields.get("named_parties") or fields.get("authors") or []),
         "Extracted author(s)": "; ".join(fields.get("named_parties") or fields.get("authors") or []),
         "Identity verification": identity_message,
+        "Name source": "Document" if fields.get("name_from_document") else "Not read from the document",
+        "OCR source": extraction.source,
+        "OCR confidence": extraction.confidence_label,
+        "OCR quality": "Reliable" if extraction.reliable else "Unreliable",
+        "OCR note": extraction.note,
         "Extracted date": fields.get("date") or "",
         "Extracted rating": str(effective_rating) if effective_rating is not None else "",
         "Base points": str(base),
@@ -344,7 +377,7 @@ def process_upload(
             f"{item['name']} ({item['score']})" for item in classification.candidates[:3]
         )
     if text.strip():
-        extracted["OCR excerpt"] = text.strip()[:280]
+        extracted["OCR excerpt"] = text.strip()[:2000]
     else:
         extracted["OCR"] = (
             "Tesseract was not available or the file had no readable text. "
@@ -364,8 +397,10 @@ def process_upload(
         "author_count": authors,
         "base_points": base,
         "contribution_percent": percent,
-        "points": 0 if missing_title else int(round(points)),
-        "exact_points": 0 if missing_title else points,
+        # points is the credited value. Only system-approved uploads store it.
+        # The calculated figure always remains in Provisional score.
+        "points": int(round(points)) if auto_approve else 0,
+        "exact_points": 0.0 if missing_title or not identity_ok else points,
         "extracted_info": extracted,
         "extracted_text": text,
         "file_hash": file_hash(file_path),
@@ -395,54 +430,92 @@ def _archive_simulation_if_version_changed(sim, previous_version: int, config_ve
         sim.history = history[-20:]
 
 
-def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
-    config = load_active_kra_config(db)
+def summarize_documents(documents, config: dict, current_rank: str | None) -> dict:
+    """Credited KRA totals for verified documents. Pending and rejected rows add nothing."""
     targets = config.get("targets") or dict(KRA_TARGETS)
-    current_rank = user.profile.current_rank if user.profile else "Instructor I"
     weight_band, applied_weights = weights_for_rank(config, current_rank)
-
-    totals = {kra: 0.0 for kra in targets}
-    verified_totals = {kra: 0.0 for kra in targets}
     counts = {kra: 0 for kra in targets}
     best_by_indicator: dict[str, tuple] = {}
     includes_pending = False
-    for doc in user.documents:
-        if doc.status in VERIFIED_STATUSES:
-            kind = "verified"
-        elif doc.status in PROVISIONAL_STATUSES:
-            kind = "provisional"
-        else:
+    for doc in documents:
+        status = getattr(doc, "status", None)
+        if status in PROVISIONAL_STATUSES:
+            includes_pending = True
             continue
-        kra = doc.kra if doc.kra in targets else None
-        if kra is None:
+        if status not in VERIFIED_STATUSES:
+            continue
+        kra = getattr(doc, "kra", None)
+        if kra not in targets:
             continue
         earned = document_earned_points(doc, config)
         if earned <= 0:
             continue
-        # One indicator keeps a single score. A verified score replaces a provisional one.
-        key = doc.indicator_id or doc.public_id
+        key = getattr(doc, "indicator_id", None) or getattr(doc, "public_id", None)
         current = best_by_indicator.get(key)
-        if current is None or (kind == "verified" and current[1] != "verified") or (
-            kind == current[1] and earned > current[0]
-        ):
-            best_by_indicator[key] = (earned, kind, kra, doc)
+        if current is None or earned > current[0]:
+            best_by_indicator[key] = (earned, kra, doc)
 
-    group_used: dict[str, float] = {}
-    for earned, kind, kra, doc in best_by_indicator.values():
-        rule = rule_for(getattr(doc, "indicator_id", None))
-        if rule and rule.get("group") and rule.get("groupMax") is not None:
-            group = rule["group"]
-            room = max(0.0, float(rule["groupMax"]) - group_used.get(group, 0.0))
-            earned = min(earned, room)
-            group_used[group] = group_used.get(group, 0.0) + earned
-        if earned <= 0:
-            continue
-        totals[kra] = totals.get(kra, 0.0) + earned
-        counts[kra] = counts.get(kra, 0) + 1
-        if kind == "provisional":
-            includes_pending = True
-        else:
-            verified_totals[kra] = verified_totals.get(kra, 0.0) + earned
+    entries = [
+        {"indicator_id": getattr(doc, "indicator_id", None), "points": earned}
+        for earned, _kra, doc in best_by_indicator.values()
+    ]
+    credited = credited_kra_totals(entries, config)
+    totals = {kra: float(credited.get(kra, 0.0)) for kra in targets}
+    for earned, kra, _doc in best_by_indicator.values():
+        if earned > 0:
+            counts[kra] = counts.get(kra, 0) + 1
+    for kra, target in targets.items():
+        totals[kra] = min(totals.get(kra, 0.0), float(target))
+    weighted = weighted_final_score(totals, applied_weights)
+    eligibility = "Potentially Eligible" if weighted >= 41 else "Pending"
+    areas = [
+        {
+            "kra": kra,
+            "recommendedPoints": int(round(max(targets[kra] - totals.get(kra, 0), 0))),
+            "guidance": (
+                f"Add documentary evidence for {kra}. "
+                f"Table 2.2 weight for {weight_band}: {int(applied_weights.get(kra, 0))}%."
+            ),
+        }
+        for kra in targets
+        if totals.get(kra, 0) < targets[kra]
+    ]
+    return {
+        "targets": targets,
+        "totals": totals,
+        "counts": counts,
+        "weighted": weighted,
+        "weightBand": weight_band,
+        "appliedWeights": applied_weights,
+        "includesPending": includes_pending,
+        "eligibility": eligibility,
+        "areas": areas,
+        "snapshot": {
+            "targets": targets,
+            "criteria": config.get("criteria") or {},
+            "indicators": config.get("indicators") or {},
+            "rankWeights": config.get("rankWeights") or {},
+            "weightBand": weight_band,
+            "appliedWeights": applied_weights,
+            "kraPoints": {kra: round(totals.get(kra, 0.0), 2) for kra in targets},
+            "verifiedKraPoints": {kra: round(totals.get(kra, 0.0), 2) for kra in targets},
+            "weightedScore": weighted,
+            "includesPending": includes_pending,
+            "pendingExcluded": True,
+            "publishedAt": config.get("publishedAt") or "",
+            "status": config.get("status") or "published",
+        },
+    }
+
+
+def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
+    config = load_active_kra_config(db)
+    current_rank = user.profile.current_rank if user.profile else "Instructor I"
+    summary = summarize_documents(user.documents, config, current_rank)
+    targets = summary["targets"]
+    totals = summary["totals"]
+    counts = summary["counts"]
+    weighted = summary["weighted"]
 
     for kra, target in targets.items():
         current = min(totals.get(kra, 0.0), float(target))
@@ -463,7 +536,6 @@ def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
             row.status_label = "In progress"
 
     # Table 2.2 weighted final score (0–100), using the faculty member's rank band.
-    weighted = weighted_final_score(totals, applied_weights)
     required = 100
     sim = user.simulation
     if sim is None:
@@ -485,35 +557,9 @@ def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
     sim.required_points = required
     sim.kra_config_version = int(config.get("version") or 0)
     sim.scoring_formula = WEIGHTED_FORMULA
-    sim.config_snapshot = {
-        "targets": targets,
-        "criteria": config.get("criteria") or {},
-        "indicators": config.get("indicators") or {},
-        "rankWeights": config.get("rankWeights") or {},
-        "weightBand": weight_band,
-        "appliedWeights": applied_weights,
-        "kraPoints": {kra: round(totals.get(kra, 0.0), 2) for kra in targets},
-        "verifiedKraPoints": {kra: round(verified_totals.get(kra, 0.0), 2) for kra in targets},
-        "weightedScore": weighted,
-        "includesPending": includes_pending,
-        "publishedAt": config.get("publishedAt") or "",
-        "status": config.get("status") or "published",
-    }
+    sim.config_snapshot = summary["snapshot"]
     if user.profile:
         sim.current_rank = user.profile.current_rank
-    # Table 3.1 starts awarding sub-ranks at 41; use that as a preview threshold only.
-    base_label = "Potentially Eligible" if weighted >= 41 else "Pending"
-    sim.eligibility_label = f"Provisional · {base_label}" if includes_pending else base_label
-    sim.areas_to_improve = [
-        {
-            "kra": kra,
-            "recommendedPoints": int(round(max(targets[kra] - totals.get(kra, 0), 0))),
-            "guidance": (
-                f"Add documentary evidence for {kra}. "
-                f"Table 2.2 weight for {weight_band}: {int(applied_weights.get(kra, 0))}%."
-            ),
-        }
-        for kra in targets
-        if totals.get(kra, 0) < targets[kra]
-    ]
+    sim.eligibility_label = summary["eligibility"]
+    sim.areas_to_improve = summary["areas"]
     return sim

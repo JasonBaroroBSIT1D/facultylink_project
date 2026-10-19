@@ -134,6 +134,10 @@ FL.store = {
     });
   },
 
+  reissueReviewerCredentials: function (reviewerId) {
+    return FL.api.send("POST", "/api/reviewers/" + encodeURIComponent(reviewerId) + "/credentials");
+  },
+
   removeReviewer: function (reviewerId) {
     const store = this;
     return FL.api.send("DELETE", "/api/reviewers/" + encodeURIComponent(reviewerId)).then(function (data) {

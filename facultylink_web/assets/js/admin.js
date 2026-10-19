@@ -128,6 +128,7 @@ FL.admin = {
             <td class="action-cell">
               <button class="btn btn-small btn-ghost" type="button" data-view="${FL.esc(reviewer.id)}">View assigned work</button>
               <button class="btn btn-small btn-primary" type="button" data-assign="${FL.esc(reviewer.id)}">Assign / Reassign</button>
+              <button class="btn btn-small btn-ghost" type="button" data-reissue="${FL.esc(reviewer.id)}">Resend credentials</button>
               <button class="btn btn-small btn-ghost" type="button" data-remove-reviewer="${FL.esc(reviewer.id)}">Remove</button>
             </td>
           </tr>`;
@@ -138,6 +139,12 @@ FL.admin = {
       });
       host.querySelectorAll("[data-assign]").forEach(function (button) {
         button.addEventListener("click", function () { FL.admin.assign(session, button.getAttribute("data-assign"), draw); });
+      });
+      host.querySelectorAll("[data-reissue]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          const reviewer = FL.store.userById(button.getAttribute("data-reissue"));
+          if (reviewer) FL.admin.reissueCredentials(reviewer, draw);
+        });
       });
       host.querySelectorAll("[data-remove-reviewer]").forEach(function (button) {
         button.addEventListener("click", function () { FL.admin.removeReviewer(session, button.getAttribute("data-remove-reviewer"), draw); });
@@ -180,7 +187,7 @@ FL.admin = {
         <label class="field"><span>Email</span><input id="reviewer-email" type="email" required></label>
         <label class="field"><span>Office / department</span><input id="reviewer-department" type="text" value="Institutional Review"></label>
         <label class="field"><span>Temporary password (optional)</span><input id="reviewer-password" type="text" placeholder="Auto-generated if blank"></label>
-        <p class="note">The reviewer can sign in to this web portal with the email and temporary password.</p>`,
+        <p class="note">Leave the password blank to generate one. FacultyLink emails it to the reviewer, who must change it on first login.</p>`,
       onConfirm: function () {
         const payload = {
           fullName: document.getElementById("reviewer-full-name").value.trim(),
@@ -198,10 +205,30 @@ FL.admin = {
             return data;
           });
         }).then(function (data) {
-          FL.ui.toast("Reviewer added. Temporary password: " + (data.temporaryPassword || "(set)"), "ok");
+          if (data.emailSent) {
+            FL.ui.toast("Reviewer added. Sign-in instructions were emailed to " + payload.email + ".", "ok");
+          } else {
+            FL.ui.toast(data.emailError || "Reviewer was created, but the credential email was not sent.", "danger");
+          }
           redraw();
         }).catch(function (error) {
           FL.ui.toast(error.message || "Reviewer was not added.", "danger");
+        });
+      }
+    });
+  },
+
+  reissueCredentials: function (reviewer, redraw) {
+    FL.ui.modal({
+      title: "Resend credentials",
+      confirmLabel: "Send new password",
+      body: `<p>FacultyLink will create a new temporary password for ${FL.esc(reviewer.name)} and email it to ${FL.esc(reviewer.email)}. The previous password stops working only after that email is sent. The reviewer must change it on the next login.</p>`,
+      onConfirm: function () {
+        FL.store.reissueReviewerCredentials(reviewer.id).then(function () {
+          FL.ui.toast("A new temporary password was emailed to " + reviewer.email + ".", "ok");
+          redraw();
+        }).catch(function (error) {
+          FL.ui.toast(error.message || "The credential email was not sent. The current password was not changed.", "danger");
         });
       }
     });
@@ -549,7 +576,7 @@ FL.admin = {
             <thead><tr><th>Faculty</th><th>College</th><th>Rank</th><th>KRA I</th><th>KRA II</th><th>KRA III</th><th>KRA IV</th><th>Computed score</th><th>Compliance</th></tr></thead>
             <tbody>${faculty.map(function (person) {
               const sim = FL.scoring.simulation(person.id);
-              const cells = sim.aggregate.kras.map(function (kra) { return `<td>${kra.earned}${kra.bonus ? "+" + kra.bonus : ""}</td>`; }).join("");
+              const cells = sim.aggregate.kras.map(function (kra) { return `<td>${kra.credited}</td>`; }).join("");
               return `<tr><td>${FL.esc(person.name)}</td><td>${FL.esc(person.college)}</td><td>${FL.esc(person.rank)}</td>${cells}<td>${sim.aggregate.total}</td><td>${FL.ui.statusBadge(FL.compliance(person.id).status)}</td></tr>`;
             }).join("")}</tbody>
           </table></div>

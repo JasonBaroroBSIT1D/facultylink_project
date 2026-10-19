@@ -221,13 +221,19 @@ def resolve_identity_profile(indicator_id: str | None) -> IdentityProfile:
             "film",
             "acting",
             "prod-design",
+            "conducting",
+            "dance-perf",
         )
     ):
         perf = any(token in iid for token in ("perf", "conducting", "acting", "dance-perf"))
         return IdentityProfile(
             mode="performer" if perf else "creative_author",
             display_label="Performer" if perf else "Creator / Author",
-            preferred_ocr_labels=("Artist", "Author(s)", "Composer", "Choreographer", "Creator", "Performer"),
+            preferred_ocr_labels=(
+                ("Performer", "Conductor", "Artist", "Author(s)", "Creator")
+                if perf
+                else ("Artist", "Author(s)", "Composer", "Choreographer", "Creator")
+            ),
             require_named_party=True,
             uploader_must_match="-sole" in iid and not perf,
             uploader_should_match="-co" in iid or perf,
