@@ -64,10 +64,30 @@ Then keep this line in `.env`:
 TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
 ```
 
+### Password recovery email (SMTP)
+
+"Forgot your password?" emails a 6-digit code. No SMS service is used. Until SMTP is configured, the API answers `503` and names the missing settings instead of pretending to send. Add these to `backend/.env` and restart Flask:
+
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_USERNAME=your.address@gmail.com
+SMTP_PASSWORD=your-app-password
+SMTP_FROM=FacultyLink <your.address@gmail.com>
+```
+
+For Gmail, enable 2-step verification and create an App Password. Use `SMTP_SECURITY=ssl` with port 465 if your provider requires it.
+
+Recovery state (hashed code, expiry, attempt count, hashed reset token) lives in new nullable columns on the existing `users` table. Flask adds them automatically on startup.
+
 ## Faculty API
 
 - `POST /api/auth/login`
 - `POST /api/auth/register` (request only)
+- `POST /api/auth/forgot-password/request`: `{ "email" }` emails a code. The reply is the same whether or not the account exists. The code lasts 5 minutes, and a new one can be requested after 60 seconds.
+- `POST /api/auth/forgot-password/verify`: `{ "email", "otp" }` returns a 10-minute `resetToken`. The code is single-use and locks after 5 wrong attempts.
+- `POST /api/auth/forgot-password/reset`: `{ "email", "resetToken", "newPassword" }` updates the password.
 - `GET /api/me`
 - `PATCH /api/me/profile`
 - `GET /api/documents`, `POST /api/documents`, `GET /api/documents/:id`

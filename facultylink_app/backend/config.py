@@ -46,3 +46,17 @@ class Config:
         _upload_folder = BASE_DIR / _upload_folder
     UPLOAD_FOLDER = _upload_folder
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
+
+    # Outgoing email (password-recovery OTP). No SMS provider is used.
+    SMTP_HOST = (os.getenv("SMTP_HOST") or "").strip()
+    SMTP_PORT = int(os.getenv("SMTP_PORT") or 587)
+    SMTP_USERNAME = (os.getenv("SMTP_USERNAME") or "").strip()
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD") or ""
+    SMTP_FROM = (os.getenv("SMTP_FROM") or os.getenv("SMTP_USERNAME") or "").strip()
+    # "starttls" (port 587), "ssl" (port 465) or "none" (local relay only).
+    SMTP_SECURITY = (os.getenv("SMTP_SECURITY") or "starttls").strip().lower()
+
+    PASSWORD_RESET_OTP_TTL_SECONDS = 5 * 60
+    PASSWORD_RESET_RESEND_SECONDS = 60
+    PASSWORD_RESET_MAX_ATTEMPTS = 5
+    PASSWORD_RESET_TOKEN_TTL_SECONDS = 10 * 60

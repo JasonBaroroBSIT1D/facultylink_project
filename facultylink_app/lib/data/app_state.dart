@@ -23,6 +23,9 @@ class AppState extends ChangeNotifier {
   FlutterSecureStorage? _storage;
 
   ApiClient get api => _api ??= ApiClient();
+
+  @visibleForTesting
+  set api(ApiClient? client) => _api = client;
   FlutterSecureStorage get _tokenStorage =>
       _storage ??= const FlutterSecureStorage();
 

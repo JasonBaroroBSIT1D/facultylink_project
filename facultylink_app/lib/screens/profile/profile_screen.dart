@@ -129,7 +129,7 @@ class ProfileScreen extends StatelessWidget {
                   await AppState.instance.resetSession();
                   Navigator.pushNamedAndRemoveUntil(
                     context,
-                    AppRoutes.welcome,
+                    AppRoutes.login,
                     (_) => false,
                   );
                 },

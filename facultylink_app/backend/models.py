@@ -18,6 +18,13 @@ class User(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default="faculty")
     created_at = db.Column(db.DateTime, default=utcnow)
+    # Email-OTP password recovery state (hashes only, never the raw code/token).
+    reset_otp_hash = db.Column(db.String(64))
+    reset_otp_expires_at = db.Column(db.DateTime)
+    reset_otp_sent_at = db.Column(db.DateTime)
+    reset_otp_attempts = db.Column(db.Integer, default=0)
+    reset_token_hash = db.Column(db.String(64))
+    reset_token_expires_at = db.Column(db.DateTime)
 
     profile = db.relationship(
         "FacultyProfile", backref="user", uselist=False, cascade="all, delete-orphan"

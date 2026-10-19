@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'api_config.dart';
@@ -50,16 +49,90 @@ class ApiClient {
     return _decode(response);
   }
 
-  Future<dynamic> sendJson(String method, String path, [Map<String, dynamic>? body]) async {
+  Future<dynamic> sendJson(
+    String method,
+    String path, [
+    Map<String, dynamic>? body,
+    Duration? timeout,
+  ]) async {
     final request = http.Request(method, _uri(path))
       ..headers.addAll({
         ..._headers,
         'Content-Type': 'application/json',
       });
     if (body != null) request.body = jsonEncode(body);
-    final streamed = await _withTimeout(_http.send(request));
+    final streamed = timeout == null
+        ? await _withTimeout(_http.send(request))
+        : await _http.send(request).timeout(
+            timeout,
+            onTimeout: () => throw TimeoutException('FacultyLink API timed out.'),
+          );
     final response = await http.Response.fromStream(streamed);
     return _decode(response);
+  }
+
+  /// Finds a reachable API host (same candidates as sign-in) before a request
+  /// that must not be repeated, such as sending an email.
+  Future<void> _useReachableHost() async {
+    final candidates = <String>{baseUrl, ...apiBaseUrlCandidates()};
+    for (final candidate in candidates) {
+      baseUrl = candidate;
+      try {
+        await getJson('/');
+        return;
+      } catch (_) {
+        continue;
+      }
+    }
+    throw ApiException(
+      'Cannot reach the FacultyLink API. Keep Flask running and stay on the same Wi‑Fi as the computer.',
+    );
+  }
+
+  Future<Map<String, dynamic>> _recoveryCall(
+    String step,
+    Map<String, dynamic> body, {
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    await _useReachableHost();
+    try {
+      final data = await sendJson(
+        'POST',
+        '/api/auth/forgot-password/$step',
+        body,
+        timeout,
+      );
+      return data as Map<String, dynamic>;
+    } on TimeoutException {
+      throw ApiException('The server took too long to respond. Please try again.');
+    }
+  }
+
+  /// Emails a 6-digit code. The server answers the same for unknown emails.
+  Future<Map<String, dynamic>> requestPasswordResetCode(String email) =>
+      _recoveryCall(
+        'request',
+        {'email': email.trim()},
+        timeout: const Duration(seconds: 30),
+      );
+
+  /// Returns a short-lived reset token when the code is correct.
+  Future<String> verifyPasswordResetCode(String email, String otp) async {
+    final data = await _recoveryCall('verify', {'email': email.trim(), 'otp': otp});
+    return data['resetToken'] as String;
+  }
+
+  Future<String> resetPassword({
+    required String email,
+    required String resetToken,
+    required String newPassword,
+  }) async {
+    final data = await _recoveryCall('reset', {
+      'email': email.trim(),
+      'resetToken': resetToken,
+      'newPassword': newPassword,
+    });
+    return (data['message'] as String?) ?? 'Your password has been updated.';
   }
 
   Future<Map<String, dynamic>> login(String email, String password) async {

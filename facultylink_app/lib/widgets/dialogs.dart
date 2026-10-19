@@ -88,10 +88,13 @@ Future<void> showSuccessDialog({
 }
 
 void showAppSnackBar(BuildContext context, String message, {bool error = false}) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      backgroundColor: error ? AppColors.error : AppColors.navy,
-      content: Text(message),
-    ),
-  );
+  // Replace any visible message so a new error is never queued behind an old one.
+  ScaffoldMessenger.of(context)
+    ..clearSnackBars()
+    ..showSnackBar(
+      SnackBar(
+        backgroundColor: error ? AppColors.error : AppColors.navy,
+        content: Text(message),
+      ),
+    );
 }

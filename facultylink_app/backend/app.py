@@ -3,6 +3,8 @@ from functools import wraps
 from uuid import uuid4
 
 import mimetypes
+import re
+import secrets
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_file
@@ -31,6 +33,7 @@ from models import (
 from kra_config import load_active_kra_config
 from schedule import preparation_period_payload
 from scoring import process_upload, refresh_user_scores
+import password_reset
 from sqlalchemy import text
 
 app = Flask(__name__)
@@ -56,6 +59,12 @@ def ensure_shared_schema():
         "ALTER TABLE rank_simulations ADD COLUMN IF NOT EXISTS scoring_formula VARCHAR(160)",
         "ALTER TABLE rank_simulations ADD COLUMN IF NOT EXISTS config_snapshot JSON",
         "ALTER TABLE rank_simulations ADD COLUMN IF NOT EXISTS history JSON",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_hash VARCHAR(64)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_expires_at TIMESTAMP",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_sent_at TIMESTAMP",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_attempts INTEGER DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash VARCHAR(64)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMP",
     ]
     for sql in statements:
         try:
@@ -341,6 +350,196 @@ def register():
             "message": "Faculty accounts are issued by your institution. This request was recorded."
         }
     ), 201
+
+
+def _recovery_email(data) -> str | None:
+    email = str(data.get("email") or "").strip().lower()
+    if len(email) > 180 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        return None
+    return email
+
+
+def _clear_reset_otp(user: User) -> None:
+    user.reset_otp_hash = None
+    user.reset_otp_expires_at = None
+    user.reset_otp_attempts = 0
+
+
+def _clear_reset_state(user: User) -> None:
+    _clear_reset_otp(user)
+    user.reset_otp_sent_at = None
+    user.reset_token_hash = None
+    user.reset_token_expires_at = None
+
+
+@app.post("/api/auth/forgot-password/request")
+def forgot_password_request():
+    """Step 1: email a 6-digit OTP. Replies identically whether or not the account exists."""
+    data = request.get_json(silent=True) or {}
+    email = _recovery_email(data)
+    if not email:
+        return jsonify({"error": "Enter a valid email address."}), 400
+
+    missing = password_reset.missing_email_settings(app.config)
+    if missing:
+        return (
+            jsonify(
+                {
+                    "error": "Password recovery email is not configured on the server. "
+                    "Missing settings: " + ", ".join(missing) + ".",
+                    "missingConfig": missing,
+                }
+            ),
+            503,
+        )
+
+    ttl = app.config["PASSWORD_RESET_OTP_TTL_SECONDS"]
+    cooldown = app.config["PASSWORD_RESET_RESEND_SECONDS"]
+    generic = jsonify(
+        {
+            "ok": True,
+            "message": password_reset.GENERIC_REQUEST_MESSAGE,
+            "expiresInSeconds": ttl,
+            "resendAfterSeconds": cooldown,
+        }
+    )
+
+    user = User.query.filter_by(email=email).with_for_update().first()
+    if not user or user.role != "faculty":
+        db.session.rollback()
+        return generic
+
+    now = password_reset.utc_now()
+    if (
+        user.reset_otp_sent_at
+        and (now - user.reset_otp_sent_at).total_seconds() < cooldown
+    ):
+        # Too soon to resend: answer the same way, but do not send another email.
+        db.session.rollback()
+        return generic
+
+    secret = app.config["SECRET_KEY"]
+    otp = password_reset.generate_otp()
+    user.reset_otp_hash = password_reset.hash_otp(secret, email, otp)
+    user.reset_otp_expires_at = password_reset.add_seconds(now, ttl)
+    user.reset_otp_sent_at = now
+    user.reset_otp_attempts = 0
+    user.reset_token_hash = None
+    user.reset_token_expires_at = None
+
+    try:
+        password_reset.send_email(
+            app.config,
+            email,
+            "Your FacultyLink password reset code",
+            password_reset.otp_email_body(otp, ttl),
+        )
+    except password_reset.EmailNotConfigured as error:
+        db.session.rollback()
+        return (
+            jsonify(
+                {
+                    "error": "Password recovery email is not configured on the server. "
+                    "Missing settings: " + ", ".join(error.missing) + ".",
+                    "missingConfig": error.missing,
+                }
+            ),
+            503,
+        )
+    except password_reset.EmailDeliveryError as error:
+        db.session.rollback()
+        app.logger.error("Password reset email could not be delivered: %s", error)
+        return (
+            jsonify({"error": "We could not send the email right now. Please try again later."}),
+            503,
+        )
+
+    write_audit(user.email, "password_reset_requested", "Password reset code emailed")
+    db.session.commit()
+    return generic
+
+
+@app.post("/api/auth/forgot-password/verify")
+def forgot_password_verify():
+    """Step 2: check the OTP (single use, limited attempts) and issue a short-lived reset token."""
+    data = request.get_json(silent=True) or {}
+    email = _recovery_email(data)
+    otp = str(data.get("otp") or "").strip()
+    invalid = (jsonify({"error": password_reset.INVALID_CODE_MESSAGE}), 400)
+    if not email or not re.fullmatch(r"\d{6}", otp):
+        return invalid
+
+    user = User.query.filter_by(email=email).with_for_update().first()
+    if not user or user.role != "faculty" or not user.reset_otp_hash:
+        db.session.rollback()
+        return invalid
+
+    now = password_reset.utc_now()
+    max_attempts = app.config["PASSWORD_RESET_MAX_ATTEMPTS"]
+    expired = not user.reset_otp_expires_at or now > user.reset_otp_expires_at
+    if expired or (user.reset_otp_attempts or 0) >= max_attempts:
+        _clear_reset_otp(user)
+        db.session.commit()
+        return invalid
+
+    secret = app.config["SECRET_KEY"]
+    if not password_reset.matches(user.reset_otp_hash, password_reset.hash_otp(secret, email, otp)):
+        user.reset_otp_attempts = (user.reset_otp_attempts or 0) + 1
+        if user.reset_otp_attempts >= max_attempts:
+            _clear_reset_otp(user)
+            write_audit(user.email, "password_reset_locked", "Too many incorrect reset codes")
+        db.session.commit()
+        return invalid
+
+    # Success: the OTP can never be used again.
+    _clear_reset_otp(user)
+    token = secrets.token_urlsafe(32)
+    ttl = app.config["PASSWORD_RESET_TOKEN_TTL_SECONDS"]
+    user.reset_token_hash = password_reset.hash_reset_token(secret, email, token)
+    user.reset_token_expires_at = password_reset.add_seconds(now, ttl)
+    db.session.commit()
+    return jsonify({"ok": True, "resetToken": token, "expiresInSeconds": ttl})
+
+
+@app.post("/api/auth/forgot-password/reset")
+def forgot_password_reset():
+    """Step 3: set the new password using the verified reset token."""
+    data = request.get_json(silent=True) or {}
+    email = _recovery_email(data)
+    token = str(data.get("resetToken") or "")
+    new_password = data.get("newPassword")
+    invalid = (jsonify({"error": password_reset.INVALID_RESET_MESSAGE}), 400)
+    if not email or not token:
+        return invalid
+    problem = password_reset.password_problem(new_password)
+    if problem:
+        return jsonify({"error": problem}), 400
+
+    user = User.query.filter_by(email=email).with_for_update().first()
+    secret = app.config["SECRET_KEY"]
+    now = password_reset.utc_now()
+    valid = (
+        user is not None
+        and user.role == "faculty"
+        and user.reset_token_expires_at is not None
+        and now <= user.reset_token_expires_at
+        and password_reset.matches(
+            user.reset_token_hash, password_reset.hash_reset_token(secret, email, token)
+        )
+    )
+    if not valid:
+        if user is not None and user.reset_token_hash:
+            _clear_reset_state(user)
+            db.session.commit()
+        else:
+            db.session.rollback()
+        return invalid
+
+    user.set_password(new_password)
+    _clear_reset_state(user)
+    write_audit(user.email, "password_reset_completed", "Password changed through email OTP recovery")
+    db.session.commit()
+    return jsonify({"ok": True, "message": "Your password has been updated. Sign in with the new password."})
 
 
 @app.get("/api/me")

@@ -4,10 +4,9 @@ import 'models/enums.dart';
 import 'models/models.dart';
 import 'navigation/app_routes.dart';
 import 'navigation/main_shell.dart';
+import 'screens/auth/forgot_password_screen.dart';
 import 'screens/auth/login_screen.dart';
-import 'screens/auth/sign_up_screen.dart';
 import 'screens/auth/splash_screen.dart';
-import 'screens/auth/welcome_screen.dart';
 import 'screens/assessment/assessment_screen.dart';
 import 'screens/documents/document_details_screen.dart';
 import 'screens/documents/upload_document_screen.dart';
@@ -35,15 +34,17 @@ class FacultyLinkApp extends StatelessWidget {
         switch (settings.name) {
           case AppRoutes.splash:
             return MaterialPageRoute(builder: (_) => const SplashScreen());
-          case AppRoutes.welcome:
-            return MaterialPageRoute(builder: (_) => const WelcomeScreen());
           case AppRoutes.login:
-            return MaterialPageRoute(builder: (_) => const LoginScreen());
-          case AppRoutes.signUp:
-            return MaterialPageRoute(builder: (_) => const SignUpScreen());
+            return MaterialPageRoute(
+              builder: (_) => LoginScreen(
+                initialEmail: settings.arguments as String?,
+              ),
+            );
           case AppRoutes.forgotPassword:
             return MaterialPageRoute(
-              builder: (_) => const ForgotPasswordScreen(),
+              builder: (_) => ForgotPasswordScreen(
+                initialEmail: settings.arguments as String?,
+              ),
             );
           case AppRoutes.main:
             return MaterialPageRoute(builder: (_) => const MainShell());
@@ -92,7 +93,7 @@ class FacultyLinkApp extends StatelessWidget {
           case AppRoutes.about:
             return MaterialPageRoute(builder: (_) => const AboutScreen());
           default:
-            return MaterialPageRoute(builder: (_) => const WelcomeScreen());
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
         }
       },
     );
