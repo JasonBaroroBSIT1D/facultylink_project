@@ -106,13 +106,6 @@ FL.pages.login = function () {
       formError.textContent = error.status ? error.message : "FacultyLink could not reach the server. Start the backend, then try again.";
     });
   });
-  document.getElementById("about-link").addEventListener("click", function () {
-    FL.ui.modal({
-      title: "About FacultyLink",
-      body: "<p>FacultyLink is an intelligent document-validated faculty self-assessment system for DBM–CHED Joint Circular No. 01, s. 2026 faculty reclassification.</p><p>It supports document validation, KRA scoring, compliance monitoring, reviewer feedback, and rank upgrade simulation for State Universities and Colleges.</p><p>FacultyLink prepares and supports evaluation. It does not replace the official evaluation of authorized committees or the SUC governing board.</p>",
-      cancelLabel: "Close"
-    });
-  });
   document.getElementById("contact-admin").addEventListener("click", function () {
     FL.ui.modal({
       title: "Contact institution admin",
@@ -168,11 +161,4 @@ FL.pages.forgotPassword = function () {
     });
   });
 
-  document.getElementById("about-link").addEventListener("click", function () {
-    FL.ui.modal({
-      title: "About FacultyLink",
-      body: "<p>FacultyLink is an intelligent document-validated faculty self-assessment system for DBM–CHED Joint Circular No. 01, s. 2026 faculty reclassification.</p><p>It supports document validation, KRA scoring, compliance monitoring, reviewer feedback, and rank upgrade simulation for State Universities and Colleges.</p><p>FacultyLink prepares and supports evaluation. It does not replace the official evaluation of authorized committees or the SUC governing board.</p>",
-      cancelLabel: "Close"
-    });
-  });
 };
