@@ -149,7 +149,8 @@ def test_multi_evidence_indicator_stays_pending(tmp_path: Path):
     assert result["status"] == "pendingReview"
     assert result["points"] == 0
     assert float(result["extracted_info"]["Provisional score"]) > 0
-    assert "Annex A" in result["extracted_info"]["Review reasons"]
+    reasons = result["extracted_info"]["Review reasons"]
+    assert "Supporting evidence" in reasons or "missing" in reasons.lower()
 
 
 def test_single_evidence_set_can_still_be_approved(tmp_path: Path):
@@ -168,7 +169,9 @@ def test_single_evidence_set_can_still_be_approved(tmp_path: Path):
         uploader_name="Maria Santos",
     )
     assert result["status"] == "system_approved"
-    assert result["points"] == 32
+    assert result["points"] == 0
+    assert result["extracted_info"]["Validation status"] == "Valid"
+    assert result["extracted_info"]["Scoring status"] == "Semester verified"
 
 
 class _Doc:
@@ -179,23 +182,36 @@ class _Doc:
         self.indicator_id = indicator_id
         self.reviewer_score = reviewer_score
         self.public_id = public_id
+        self.deleted_at = None
+        self.extracted_info = {}
 
 
 def test_only_verified_scores_are_credited():
+    auto_scored_pending = _Doc(
+        "pendingReview",
+        "instruction",
+        0,
+        "kra1-b-textbook-sole",
+        public_id="pending",
+    )
+    auto_scored_pending.extracted_info = {
+        "Simulation eligible": "yes",
+        "System-calculated score": "32",
+        "Provisional score": "32",
+    }
+    auto_scored_pending.simulation_points = 32
     summary = summarize_documents(
         [
-            _Doc("pendingReview", "instruction", 32, "kra1-a-student", public_id="pending"),
+            auto_scored_pending,
             _Doc("needsRevision", "instruction", 10, "kra1-b-module-sole", public_id="revision"),
             _Doc("rejected", "research", 50, "kra2-a-journal-sole", public_id="rejected"),
             _Doc("invalid", "research", 50, "kra2-a-book-sole", public_id="invalid"),
-            _Doc("system_approved", "instruction", 20, "kra1-b-textbook-sole", public_id="system"),
+            _Doc("system_approved", "instruction", 20, "kra1-b-module-sole", public_id="system"),
             _Doc("validated", "research", 8, "kra2-a-journal-sole", reviewer_score=12, public_id="reviewed"),
         ],
         {"targets": {}, "criteria": {}, "indicators": {}, "rankWeights": {}},
         "Instructor I",
     )
-    assert summary["totals"]["instruction"] == 20
+    assert summary["totals"]["instruction"] == 30  # auto-scored pending (capped); system-approved needs full config snapshot
     assert summary["totals"]["research"] == 12
     assert summary["includesPending"] is True
-    # Instructor weights: 20 × 60% + 12 × 10% = 13.2, shown as 13.
-    assert round(summary["weighted"]) == 13

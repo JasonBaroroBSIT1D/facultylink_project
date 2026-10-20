@@ -107,6 +107,13 @@ class FacultyDocument {
     this.fileSize,
     this.hasFile = false,
     this.fileUrl,
+    this.canDelete = false,
+    this.canReplace = false,
+    this.canRequestWithdrawal = false,
+    this.effectiveSimulationScore,
+    this.simulationScoreSource,
+    this.reviewerOversightStatus,
+    this.scoringStatus,
   });
 
   final String id;
@@ -127,6 +134,18 @@ class FacultyDocument {
   final int? fileSize;
   final bool hasFile;
   final String? fileUrl;
+  final bool canDelete;
+  final bool canReplace;
+  final bool canRequestWithdrawal;
+  final double? effectiveSimulationScore;
+  final String? simulationScoreSource;
+  final String? reviewerOversightStatus;
+  final String? scoringStatus;
+
+  bool get countsInSimulation =>
+      (effectiveSimulationScore != null && effectiveSimulationScore! > 0) ||
+      (extractedInfo['SET period simulation score'] ?? '').trim().isNotEmpty ||
+      (extractedInfo['SEF period simulation score'] ?? '').trim().isNotEmpty;
 
   bool get creditsPoints =>
       status == DocumentStatus.validated || status == DocumentStatus.systemApproved;
@@ -141,6 +160,36 @@ class FacultyDocument {
   String get provisionalLabel {
     final value = (extractedInfo['Provisional score'] ?? '').trim();
     return value.isEmpty ? '—' : value;
+  }
+
+  String get simulationScoreLabel {
+    final periodRaw = (extractedInfo['SET period simulation score'] ??
+            extractedInfo['SEF period simulation score'] ??
+            '')
+        .trim();
+    final filled = (extractedInfo['Evaluation period filled'] ?? '').trim();
+    if (periodRaw.isNotEmpty) {
+      return 'Period $filled · $periodRaw pts';
+    }
+    if ((indicatorId == 'kra1-a-student' || indicatorId == 'kra1-a-supervisor') &&
+        filled.isNotEmpty) {
+      return 'Period $filled — need 6/6 for rank sim';
+    }
+    if (effectiveSimulationScore != null) {
+      return effectiveSimulationScore!.toStringAsFixed(
+        effectiveSimulationScore!.truncateToDouble() == effectiveSimulationScore! ? 0 : 1,
+      );
+    }
+    return 'Score unavailable';
+  }
+
+  String get simulationSourceLabel {
+    final source = simulationScoreSource ??
+        extractedInfo['Simulation score source'] ??
+        'Unavailable';
+    if (source == 'System-calculated') return 'System-calculated';
+    if (source == 'Reviewer-adjusted') return 'Reviewer-adjusted';
+    return source;
   }
 
   bool get canResubmit =>

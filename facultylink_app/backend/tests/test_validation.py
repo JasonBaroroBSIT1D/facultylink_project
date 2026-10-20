@@ -137,4 +137,5 @@ def test_process_upload_auto_approves_set_with_rating(tmp_path: Path):
     )
     assert result["indicator_id"] == "kra1-a-student"
     assert result["status"] == "system_approved"
-    assert result["points"] == 32
+    assert result["points"] == 0
+    assert float(result["extracted_info"]["Provisional score"]) == 0.0

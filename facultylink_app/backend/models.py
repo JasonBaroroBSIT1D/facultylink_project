@@ -65,6 +65,8 @@ class FacultyProfile(db.Model):
     employment_status = db.Column(db.String(40), nullable=False)
     campus = db.Column(db.String(80), nullable=False)
     phone = db.Column(db.String(40), nullable=False)
+    evaluation_period_exception = db.Column(db.String(80))
+    evaluation_period_exception_verified = db.Column(db.Boolean, nullable=False, default=False)
 
     def to_dict(self):
         return {
@@ -80,6 +82,8 @@ class FacultyProfile(db.Model):
             "employmentStatus": self.employment_status,
             "campus": self.campus,
             "phone": self.phone,
+            "evaluationPeriodException": self.evaluation_period_exception,
+            "evaluationPeriodExceptionVerified": bool(self.evaluation_period_exception_verified),
         }
 
 
@@ -115,8 +119,28 @@ class Document(db.Model):
     reviewer_remarks = db.Column(db.Text)
     review_snapshot = db.Column(db.Text)
     decided_at = db.Column(db.String(40))
+    deleted_at = db.Column(db.DateTime)
+    active_version = db.Column(db.Integer, nullable=False, default=1)
+    simulation_points = db.Column(db.Integer, nullable=False, default=0)
+    package_id = db.Column(db.Integer, db.ForeignKey("evidence_packages.id"))
+    requirement_index = db.Column(db.Integer)
+
+    package = db.relationship("EvidencePackage", back_populates="documents")
+    evaluation_records = db.relationship(
+        "EvaluationRecord",
+        back_populates="source_document",
+        cascade="all, delete-orphan",
+    )
 
     def to_dict(self):
+        from document_lifecycle import document_action_flags, is_active
+        from simulation_scoring import document_simulation_api_fields
+
+        actions = document_action_flags(self) if is_active(self) else {
+            "canDelete": False,
+            "canReplace": False,
+            "canRequestWithdrawal": False,
+        }
         return {
             "id": self.public_id,
             "title": self.title,
@@ -137,6 +161,109 @@ class Document(db.Model):
             "hasFile": bool(self.file_path),
             "fileUrl": f"/api/documents/{self.public_id}/file" if self.file_path else None,
             "reviewerScore": self.reviewer_score,
+            "simulationPoints": self.simulation_points or 0,
+            "activeVersion": self.active_version or 1,
+            "actions": actions,
+            **document_simulation_api_fields(self),
+            "packageId": self.package.public_id if self.package else None,
+            "requirementIndex": self.requirement_index,
+            "evaluationRecordCount": len(
+                [r for r in (self.evaluation_records or []) if getattr(r, "deleted_at", None) is None]
+            ),
+        }
+
+
+class EvaluationRecord(db.Model):
+    """Logical SET/SEF semester rating extracted from one uploaded document."""
+
+    __tablename__ = "evaluation_records"
+
+    id = db.Column(db.Integer, primary_key=True)
+    public_id = db.Column(db.String(40), unique=True, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    source_document_id = db.Column(db.Integer, db.ForeignKey("documents.id"), nullable=False)
+    indicator_id = db.Column(db.String(80), nullable=False)
+    academic_year = db.Column(db.String(20), nullable=False)
+    semester = db.Column(db.String(4), nullable=False)
+    rating = db.Column(db.Float, nullable=False)
+    status = db.Column(db.String(40), nullable=False, default="pendingReview")
+    validation_status = db.Column(db.String(40), nullable=False, default="Needs Verification")
+    validation_message = db.Column(db.String(500))
+    source_line = db.Column(db.String(300))
+    page_hint = db.Column(db.String(40))
+    extraction_kind = db.Column(db.String(20), nullable=False, default="individual")
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
+    deleted_at = db.Column(db.DateTime)
+
+    owner = db.relationship("User", backref="evaluation_records")
+    source_document = db.relationship("Document", back_populates="evaluation_records")
+
+    def to_dict(self):
+        return {
+            "id": self.public_id,
+            "indicatorId": self.indicator_id,
+            "evaluationType": "SET" if self.indicator_id == "kra1-a-student" else "SEF",
+            "academicYear": self.academic_year,
+            "semester": self.semester,
+            "rating": self.rating,
+            "status": self.status,
+            "validationStatus": self.validation_status,
+            "validationMessage": self.validation_message,
+            "sourceDocumentId": self.source_document.public_id if self.source_document else None,
+            "sourceLine": self.source_line,
+            "pageHint": self.page_hint,
+            "extractionKind": self.extraction_kind,
+        }
+
+
+class EvidencePackage(db.Model):
+    __tablename__ = "evidence_packages"
+
+    id = db.Column(db.Integer, primary_key=True)
+    public_id = db.Column(db.String(40), unique=True, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    kra = db.Column(db.String(40), nullable=False)
+    criterion_id = db.Column(db.String(80), nullable=False)
+    indicator_id = db.Column(db.String(80), nullable=False)
+    accomplishment_title = db.Column(db.String(255))
+    reviewer_requirement_states = db.Column(db.JSON, default=dict)
+    evaluation_exception_verified = db.Column(db.Boolean, nullable=False, default=False)
+    checklist_json = db.Column(db.Text)
+    simulation_eligible = db.Column(db.Boolean, nullable=False, default=False)
+    simulation_points = db.Column(db.Float, nullable=False, default=0.0)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
+
+    owner = db.relationship("User", backref="evidence_packages")
+    documents = db.relationship("Document", back_populates="package")
+
+    def to_dict(self):
+        import json
+
+        requirements = []
+        if self.checklist_json:
+            try:
+                requirements = json.loads(self.checklist_json)
+            except (TypeError, ValueError):
+                requirements = []
+        active_docs = [
+            d.to_dict()
+            for d in self.documents
+            if getattr(d, "deleted_at", None) is None
+        ]
+        return {
+            "id": self.public_id,
+            "kra": self.kra,
+            "criterionId": self.criterion_id,
+            "indicatorId": self.indicator_id,
+            "accomplishmentTitle": self.accomplishment_title or "",
+            "requirements": requirements,
+            "simulationEligible": self.simulation_eligible,
+            "simulationPoints": round(float(self.simulation_points or 0), 2),
+            "evaluationExceptionVerified": self.evaluation_exception_verified,
+            "documents": active_docs,
+            "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 

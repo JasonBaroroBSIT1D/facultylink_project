@@ -38,8 +38,13 @@ class AppState extends ChangeNotifier {
   RankSimulation? _simulation;
   List<RequirementItem>? _requirements;
   PreparationPeriod? _preparationPeriod;
+  Map<String, dynamic>? _criterionA;
   bool usingApi = false;
   bool mustChangePassword = false;
+  bool refreshInProgress = false;
+  String? busyMessage;
+  DateTime? _lastRefreshAt;
+  bool _operationLocked = false;
 
   int mainTabIndex = 0;
   int assessmentTabIndex = 0;
@@ -47,6 +52,7 @@ class AppState extends ChangeNotifier {
   DashboardSnapshot get dashboard => _dashboard ?? MockData.dashboard;
   List<KraScore> get kraScores => _kraScores ?? MockData.kraScores;
   RankSimulation get simulation => _simulation ?? MockData.simulation;
+  Map<String, dynamic>? get criterionA => _criterionA;
   List<RequirementItem> get requirements => _requirements ?? MockData.requirements;
   PreparationPeriod get preparationPeriod =>
       _preparationPeriod ?? MockData.preparationPeriod;
@@ -71,6 +77,9 @@ class AppState extends ChangeNotifier {
     if (mainTabIndex == index) return;
     mainTabIndex = index;
     notifyListeners();
+    if (usingApi && index <= 3) {
+      unawaited(refreshFromApi(label: 'Refreshing documents...', soft: true));
+    }
   }
 
   void openAssessment({int innerTab = 0}) {
@@ -142,8 +151,28 @@ class AppState extends ChangeNotifier {
     return api.register(fullName: fullName, email: email);
   }
 
-  Future<void> refreshFromApi() async {
+  Future<void> refreshFromApi({String? label, bool soft = false}) async {
     if (!usingApi || api.accessToken == null) return;
+    final now = DateTime.now();
+    if (soft &&
+        _lastRefreshAt != null &&
+        now.difference(_lastRefreshAt!) < const Duration(seconds: 20)) {
+      return;
+    }
+    refreshInProgress = true;
+    busyMessage = label ?? 'Refreshing documents...';
+    notifyListeners();
+    try {
+      await _pullFromApi();
+      _lastRefreshAt = DateTime.now();
+    } finally {
+      refreshInProgress = false;
+      busyMessage = null;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _pullFromApi() async {
     final results = await Future.wait([
       api.getJson('/api/me'),
       api.getJson('/api/documents'),
@@ -175,10 +204,69 @@ class AppState extends ChangeNotifier {
     _simulation = simulationFromJson(results[5] as Map<String, dynamic>);
     _preparationPeriod = periodFromJson(results[6] as Map<String, dynamic>);
     _dashboard = dashboardFromJson(results[7] as Map<String, dynamic>);
-    notifyListeners();
+    try {
+      final raw = await api.getJson('/api/assessment/kra1-criterion-a');
+      _criterionA = raw is Map<String, dynamic> ? raw : null;
+    } catch (_) {
+      _criterionA = null;
+    }
   }
 
-  Future<void> uploadDocument({
+  Future<T> _runExclusive<T>(String message, Future<T> Function() action) async {
+    if (_operationLocked) {
+      throw StateError('Another document operation is still running.');
+    }
+    _operationLocked = true;
+    busyMessage = message;
+    notifyListeners();
+    try {
+      return await action();
+    } finally {
+      _operationLocked = false;
+      busyMessage = null;
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteDocument(String documentId) async {
+    if (!usingApi) {
+      documents = documents.where((d) => d.id != documentId).toList();
+      notifyListeners();
+      return;
+    }
+    await _runExclusive('Deleting document...', () async {
+      await api.deleteDocument(documentId);
+      await refreshFromApi(label: 'Updating scores...');
+    });
+  }
+
+  Future<FacultyDocument> replaceDocument({
+    required String documentId,
+    required String fileName,
+    required List<int> fileBytes,
+    String? title,
+  }) async {
+    return _runExclusive('Replacing document...', () async {
+      final updated = await api.replaceDocument(
+        publicId: documentId,
+        fileName: fileName,
+        fileBytes: fileBytes,
+        title: title,
+      );
+      await refreshFromApi(label: 'Processing document...');
+      return documentFromJson(updated);
+    });
+  }
+
+  Future<void> requestDocumentWithdrawal(String documentId, {String? reason}) async {
+    if (!usingApi) return;
+    await _runExclusive('Submitting withdrawal request...', () async {
+      await api.requestDocumentWithdrawal(publicId: documentId, reason: reason);
+      await refreshFromApi(label: 'Refreshing documents...');
+    });
+  }
+
+  Future<String?> uploadDocument({
     required String title,
     required DocumentCategory category,
     required KraType kra,
@@ -186,23 +274,29 @@ class AppState extends ChangeNotifier {
     String? criterionId,
     String? indicatorId,
     double? contributionPercent,
+    String? packageId,
+    int? requirementIndex,
     List<int>? fileBytes,
   }) async {
     if (usingApi) {
-      final created = await api.uploadDocument(
-        title: title,
-        category: category.name,
-        kra: kra.name,
-        fileName: fileName,
-        criterionId: criterionId,
-        indicatorId: indicatorId,
-        contributionPercent: contributionPercent,
-        fileBytes: fileBytes,
-      );
-      final doc = documentFromJson(created);
-      documents = [doc, ...documents];
-      await refreshFromApi();
-      return;
+      String? linkedPackageId;
+      await _runExclusive('Uploading document...', () async {
+        final created = await api.uploadDocument(
+          title: title,
+          category: category.name,
+          kra: kra.name,
+          fileName: fileName,
+          criterionId: criterionId,
+          indicatorId: indicatorId,
+          contributionPercent: contributionPercent,
+          packageId: packageId,
+          requirementIndex: requirementIndex,
+          fileBytes: fileBytes,
+        );
+        linkedPackageId = created['packageId']?.toString();
+        await refreshFromApi(label: 'Processing document...');
+      });
+      return linkedPackageId;
     }
 
     addSubmittedDocument(
@@ -224,6 +318,7 @@ class AppState extends ChangeNotifier {
         validationResult: 'Submitted. Awaiting system processing and reviewer validation.',
       ),
     );
+    return null;
   }
 
   void markNotificationRead(String id) {

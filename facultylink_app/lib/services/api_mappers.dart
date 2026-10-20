@@ -1,10 +1,24 @@
 import '../models/enums.dart';
 import '../models/models.dart';
 
+String? _normalizeDocumentStatus(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  const aliases = {
+    'system_approved': 'systemApproved',
+    'pendingReview': 'pendingReview',
+    'needsRevision': 'needsRevision',
+    'validated': 'validated',
+    'invalid': 'invalid',
+    'processing': 'processing',
+  };
+  return aliases[raw] ?? raw;
+}
+
 T _enumByName<T extends Enum>(List<T> values, String? raw, T fallback) {
   if (raw == null) return fallback;
+  final normalized = _normalizeDocumentStatus(raw) ?? raw;
   for (final value in values) {
-    if (value.name == raw) return value;
+    if (value.name == normalized) return value;
   }
   return fallback;
 }
@@ -64,7 +78,27 @@ KraScore kraScoreFromJson(Map<String, dynamic> json) {
   );
 }
 
+bool _actionFlag(Map<String, dynamic> json, String key) {
+  final actions = json['actions'];
+  if (actions is Map && actions[key] is bool) return actions[key] as bool;
+  return false;
+}
+
 FacultyDocument documentFromJson(Map<String, dynamic> json) {
+  final extracted = Map<String, String>.from(_stringMap(json['extractedInfo']));
+  final periodScore = json['periodSimulationScore'];
+  final periodFilled = json['evaluationPeriodFilled'];
+  if (periodScore != null && extracted['SET period simulation score'] == null) {
+    final ind = json['indicatorId'] as String? ?? '';
+    if (ind == 'kra1-a-supervisor') {
+      extracted['SEF period simulation score'] = periodScore.toString();
+    } else {
+      extracted['SET period simulation score'] = periodScore.toString();
+    }
+  }
+  if (periodFilled != null && periodFilled.toString().trim().isNotEmpty) {
+    extracted['Evaluation period filled'] = periodFilled.toString();
+  }
   return FacultyDocument(
     id: json['id'] as String? ?? '',
     title: json['title'] as String? ?? '',
@@ -83,7 +117,7 @@ FacultyDocument documentFromJson(Map<String, dynamic> json) {
     points: (json['points'] as num?)?.toInt() ?? 0,
     fileName: json['fileName'] as String? ?? '',
     author: json['author'] as String?,
-    extractedInfo: _stringMap(json['extractedInfo']),
+    extractedInfo: extracted,
     reviewerFeedback: json['reviewerFeedback'] as String?,
     validationResult: json['validationResult'] as String?,
     indicatorId: json['indicatorId'] as String?,
@@ -92,6 +126,13 @@ FacultyDocument documentFromJson(Map<String, dynamic> json) {
     fileSize: (json['fileSize'] as num?)?.toInt(),
     hasFile: json['hasFile'] == true,
     fileUrl: json['fileUrl'] as String?,
+    canDelete: _actionFlag(json, 'canDelete'),
+    canReplace: _actionFlag(json, 'canReplace'),
+    canRequestWithdrawal: _actionFlag(json, 'canRequestWithdrawal'),
+    effectiveSimulationScore: (json['effectiveSimulationScore'] as num?)?.toDouble(),
+    simulationScoreSource: json['simulationScoreSource'] as String?,
+    reviewerOversightStatus: json['reviewerOversightStatus'] as String?,
+    scoringStatus: json['scoringStatus'] as String?,
   );
 }
 

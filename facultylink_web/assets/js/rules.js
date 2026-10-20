@@ -2487,14 +2487,14 @@ FL.rules = {
   ],
   workflow: [
     "Faculty uploads document",
-    "OCR extraction",
-    "Document validation",
-    "Rule-based KRA scoring",
-    "Provisional score and rank simulation",
-    "Reviewer verification",
-    "Reviewer decision",
-    "Score recalculation",
-    "Updated rank simulation"
+    "OCR / text extraction",
+    "Classification (KRA → criterion → indicator)",
+    "Indicator-specific evidence validation",
+    "Scoring eligibility decision",
+    "Automatic simulation score (complete + valid)",
+    "Optional reviewer oversight",
+    "Reviewer adjustment or invalidation",
+    "Rank simulation recalculation"
   ]
 };
 

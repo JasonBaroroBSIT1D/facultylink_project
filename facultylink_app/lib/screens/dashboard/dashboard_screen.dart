@@ -29,8 +29,11 @@ class DashboardScreen extends StatelessWidget {
         final unread = state.unreadNotificationCount;
 
         return Scaffold(
-          body: CustomScrollView(
-            slivers: [
+          body: RefreshIndicator(
+            onRefresh: () => state.refreshFromApi(label: 'Refreshing documents...'),
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
               SliverToBoxAdapter(child: _Header(faculty: faculty, unread: unread)),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
@@ -187,6 +190,7 @@ class DashboardScreen extends StatelessWidget {
                 ),
               ),
             ],
+            ),
           ),
         );
       },

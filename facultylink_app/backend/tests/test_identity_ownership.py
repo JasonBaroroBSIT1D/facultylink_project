@@ -35,7 +35,8 @@ def test_account_name_is_compared_not_the_upload_form(tmp_path: Path):
     assert info["Extracted names"] == "Pedro Cruz"
     assert "does not match" in info["Identity verification"]
     assert result["validation_result"].startswith("Extracted faculty name does not match")
-    assert float(info["Provisional score"]) > 0
+    assert float(info["Provisional score"]) == 0.0
+    assert float(info["Extracted rating"]) == 90.0
 
 
 def test_name_on_the_following_line_is_not_part_of_the_subject(tmp_path: Path):
@@ -89,7 +90,7 @@ def test_matching_owner_is_still_approved(tmp_path: Path):
         "Overall SET rating: 90\nAcademic Year 2024-2025\nPrepared by: Alex Reyes\n",
     )
     assert result["status"] == "system_approved"
-    assert result["points"] == 32
+    assert result["points"] == 0
     assert result["extracted_info"]["Extracted names"] == "Maria Santos"
 
 
@@ -117,4 +118,4 @@ def test_coauthor_is_recognized_and_sole_claim_is_not_approved(tmp_path: Path):
     assert "Maria Santos" in result["extracted_info"]["Extracted names"]
     assert "Pedro Cruz" in result["extracted_info"]["Extracted names"]
     assert result["status"] == "pendingReview"
-    assert "matches the uploading" in result["extracted_info"]["Identity verification"]
+    assert result["extracted_info"]["Identity verification"] == "Identity matched."

@@ -181,7 +181,7 @@ FL.scoring = {
     documents.forEach(function (doc) {
       if (
         doc.status === "system-approved"
-        && typeof doc.databasePoints === "number"
+        && (typeof doc.databasePoints === "number" || typeof doc.effectiveSimulationScore === "number")
         && doc.indicatorId
       ) {
         const found = FL.rules.findIndicator(doc.indicatorId);
@@ -213,6 +213,27 @@ FL.scoring = {
         return;
       }
       if (doc.status === "pending-review" || doc.status === "pendingReview") {
+        const effective = FL.documents.effectiveSimulationScore(doc);
+        if (effective !== null && doc.indicatorId) {
+          const found = FL.rules.findIndicator(doc.indicatorId);
+          if (found) {
+            const review = {
+              indicatorId: doc.indicatorId,
+              kraId: found.kra.id,
+              criterionId: found.criterion.id,
+              finalScore: effective,
+              assignedScore: effective,
+              contributionPercent: 100,
+              officialMax: found.indicator.maxPoints
+            };
+            const indicatorKey = doc.indicatorId;
+            const current = bestByIndicator[indicatorKey];
+            if (!current || review.finalScore > current.review.finalScore) {
+              bestByIndicator[indicatorKey] = { doc: doc, review: review, autoScored: true };
+            }
+          }
+          return;
+        }
         const provisional = FL.scoring.scoreDocument(doc);
         if (provisional.finalScore !== null && provisional.indicator && provisional.kra) {
           const key = provisional.indicator.id;
@@ -342,7 +363,12 @@ FL.scoring = {
       } else if (doc.status === "rejected") {
         gaps.push({ tone: "danger", text: doc.id + " was rejected and is not included in the estimate." });
       } else if (doc.status === "pending-review" || doc.status === "pendingReview") {
-        gaps.push({ tone: "info", text: doc.id + " is pending review. Its score is not included in the credited total until a reviewer decides." });
+        const effective = FL.documents.effectiveSimulationScore(doc);
+        if (effective === null) {
+          gaps.push({ tone: "info", text: doc.id + " is incomplete or invalid — score unavailable for simulation." });
+        } else {
+          gaps.push({ tone: "ok", text: doc.id + " is automatically scored in the simulation (" + effective + " pts) while awaiting reviewer check." });
+        }
       }
       if (validation.evidenceStatus === "missing") {
         gaps.push({ tone: "danger", text: doc.id + " is missing required documentary evidence." });

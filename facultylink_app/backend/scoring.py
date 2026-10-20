@@ -1,6 +1,7 @@
 import hashlib
 import re
 from pathlib import Path
+from typing import Any
 
 from indicator_rules import rule_for
 from kra_config import (
@@ -18,6 +19,8 @@ from ocr import extract_document
 
 VERIFIED_STATUSES = {"validated", "approved", "system_approved"}
 PROVISIONAL_STATUSES = {"pendingReview", "pending-review", "processing"}
+PROTECTED_DOC_STATUSES = frozenset({"validated", "approved", "needsRevision", "invalid", "rejected"})
+RECONCILABLE_STATUSES = frozenset({"pendingReview", "processing", "pending-review"})
 
 # Fallback targets when kra_settings is unavailable (JC No. 01, s. 2026 maxima).
 KRA_TARGETS = dict(DEFAULT_KRA_MAX)
@@ -68,6 +71,71 @@ def classify_kra(text: str, fallback: str | None = None) -> tuple[str, bool]:
         return fallback or "instruction", False
     matches.sort()
     return matches[0][1], len(matches) > 1
+
+
+def _as_eval_document(doc, *, fallback_indicator: str | None = None):
+    info = getattr(doc, "extracted_info", None) or {}
+    if not isinstance(info, dict):
+        info = {}
+    return type(
+        "_EvalDoc",
+        (),
+        {
+            "indicator_id": getattr(doc, "indicator_id", None) or fallback_indicator,
+            "deleted_at": getattr(doc, "deleted_at", None),
+            "extracted_info": info,
+            "reviewer_score": getattr(doc, "reviewer_score", None),
+            "status": getattr(doc, "status", None) or "pendingReview",
+            "public_id": getattr(doc, "public_id", "") or "",
+            "title": getattr(doc, "title", None) or "",
+            "file_name": getattr(doc, "file_name", None) or "",
+        },
+    )()
+
+
+def _evaluation_period_pool(
+    resolved_indicator: str,
+    *,
+    package_docs,
+    context_docs,
+    current_slot_info: dict | None,
+    current_public_id: str = "",
+):
+    """Merge package members and same-indicator uploads for SET/SEF period aggregation."""
+    from kra1a_evaluation import RATING_AGGREGATION_INDICATORS
+
+    if resolved_indicator not in RATING_AGGREGATION_INDICATORS:
+        return []
+    pool: dict[str, Any] = {}
+    for doc in list(context_docs or []) + list(package_docs or []):
+        if getattr(doc, "deleted_at", None) is not None:
+            continue
+        iid = getattr(doc, "indicator_id", None)
+        if iid and iid != resolved_indicator:
+            continue
+        pid = getattr(doc, "public_id", None) or id(doc)
+        pool[str(pid)] = _as_eval_document(doc, fallback_indicator=resolved_indicator)
+    if current_slot_info:
+        key = current_public_id or "__current__"
+        merged = dict(current_slot_info)
+        if key in pool:
+            existing = pool[key].extracted_info
+            merged = {**existing, **merged}
+        pool[key] = type(
+            "_EvalDoc",
+            (),
+            {
+                "indicator_id": resolved_indicator,
+                "deleted_at": None,
+                "extracted_info": merged,
+                "reviewer_score": None,
+                "status": "pendingReview",
+                "public_id": current_public_id or "",
+                "title": merged.get("Extracted title") or "",
+                "file_name": "",
+            },
+        )()
+    return list(pool.values())
 
 
 def contribution_score(base_points: float, authors: int) -> float:
@@ -179,6 +247,14 @@ def process_upload(
     config: dict | None = None,
     existing_docs=None,
     uploader_name: str | None = None,
+    stored_ocr_text: str | None = None,
+    field_overrides: dict | None = None,
+    prior_extracted_info: dict | None = None,
+    reviewer_correction: dict | None = None,
+    force_manual_review: bool = False,
+    package_evidence_documents=None,
+    evaluation_context_documents=None,
+    current_public_id: str = "",
 ):
     from document_classifier import classify_within_criterion
     from document_validation import (
@@ -193,8 +269,22 @@ def process_upload(
     from indicator_identity import resolve_identity_profile
     from kra_catalog import find_indicator
 
-    extraction = extract_document(file_path)
-    text = extraction.text
+    if stored_ocr_text is not None:
+        text = stored_ocr_text or ""
+        extraction = type(
+            "StoredExtraction",
+            (),
+            {
+                "text": text,
+                "reliable": bool(text.strip()),
+                "source": "stored",
+                "confidence_label": "Stored text",
+                "note": "",
+            },
+        )()
+    else:
+        extraction = extract_document(file_path)
+        text = extraction.text
     combined = " ".join(part for part in (title, author, text) if part)
     kra, ambiguous = classify_kra(combined, declared_kra)
     provisional_authors = author_count(author)
@@ -212,6 +302,11 @@ def process_upload(
         ocr_text=text,
         indicator_id=resolved_indicator,
     )
+    correction_entries: list[dict] = []
+    if field_overrides:
+        from reviewer_metadata import apply_field_overrides
+
+        fields, correction_entries = apply_field_overrides(fields, field_overrides)
     authors = max(len(fields.get("named_parties") or fields.get("authors") or []), author_count(author))
     indicator_meta = find_indicator(resolved_indicator)
     if indicator_meta and declared_kra and indicator_meta.get("mobileKey") != declared_kra:
@@ -228,16 +323,27 @@ def process_upload(
         authors=authors,
         config=config,
     )
+    rule = rule_for(resolved_indicator)
     if scored["matched"] and scored["base_points"] is not None:
         base = scored["base_points"]
         percent = scored["contribution_percent"] or 100.0
         points = scored["points"]
+    elif rule and rule.get("multiplier") is not None:
+        # SET/SEF and other rating multipliers — never substitute generic KRA fallback points.
+        base = scored.get("base_points")
+        percent = scored.get("contribution_percent") or 100.0
+        points = scored.get("points") or 0
     else:
-        base = KRA_BASE_POINTS.get(kra, 5)
-        percent = round(100.0 / max(authors, 1), 2)
-        points = final_score(base, percent)
+        # All four KRAs: use indicator configuration only — no generic KRA base-point fallback.
+        base = scored.get("base_points")
+        percent = scored.get("contribution_percent")
+        if percent is None:
+            percent = round(100.0 / max(authors, 1), 2)
+        points = float(scored.get("points") or 0)
 
     review_reasons: list[str] = list(classification.reasons)
+    if resolved_indicator and points <= 0 and scored.get("note"):
+        review_reasons.append(scored["note"])
     fields_ok, field_reasons = validate_indicator_fields(
         resolved_indicator, fields, ocr_text=text
     )
@@ -272,6 +378,7 @@ def process_upload(
         indicator_id=resolved_indicator,
         title=title,
         file_hash=file_digest,
+        exclude_public_id=current_public_id or None,
     )
     if duplicate_of:
         review_reasons.append(
@@ -302,32 +409,138 @@ def process_upload(
             review_reasons.append("The identity name was not read from the document text.")
             identity_ok = False
 
-    evidence = (rule_for(resolved_indicator) or {}).get("evidence") or []
+    from evidence_validation import assess_package_requirements
+
+    prior_info = prior_extracted_info if isinstance(prior_extracted_info, dict) else {}
+    reviewer_req_states = prior_info.get("Reviewer requirement states")
+    if isinstance(reviewer_req_states, str):
+        try:
+            import json as _json
+
+            reviewer_req_states = _json.loads(reviewer_req_states)
+        except (TypeError, ValueError):
+            reviewer_req_states = {}
+    if not isinstance(reviewer_req_states, dict):
+        reviewer_req_states = {}
+
+    package_docs = list(package_evidence_documents or [])
+    if not package_docs:
+        package_docs = [
+            type(
+                "_UploadDoc",
+                (),
+                {
+                    "extracted_text": text,
+                    "extracted_info": prior_info,
+                    "requirement_index": prior_info.get("Evidence requirement index"),
+                    "deleted_at": None,
+                },
+            )()
+        ]
+    evidence_assessment = assess_package_requirements(
+        resolved_indicator,
+        package_docs,
+        fields_ok=fields_ok,
+        identity_ok=identity_ok,
+        reviewer_states=reviewer_req_states,
+    )
     evidence_reason = None
-    if resolved_indicator and len(evidence) != 1:
-        evidence_reason = (
-            "Annex A requires documentary evidence that cannot be confirmed from this file alone, "
-            "so a reviewer must verify it before points are credited."
-        )
-        review_reasons.append(evidence_reason)
+    if resolved_indicator and (evidence_assessment.get("requirements") or []):
+        if not evidence_assessment.get("completeValid"):
+            missing = evidence_assessment.get("missingLabels") or []
+            uncertain = evidence_assessment.get("uncertainLabels") or []
+            if missing:
+                evidence_reason = (
+                    "Required supporting evidence is missing: " + "; ".join(missing[:4])
+                    + ("…" if len(missing) > 4 else "")
+                )
+            elif uncertain:
+                evidence_reason = (
+                    "Supporting evidence needs verification: " + "; ".join(uncertain[:4])
+                    + ("…" if len(uncertain) > 4 else "")
+                )
+            else:
+                evidence_reason = "Supporting evidence checklist is not complete and valid."
+            review_reasons.append(evidence_reason)
+
+    package_complete = bool(evidence_assessment.get("completeValid"))
+
+    from kra1a_evaluation import RATING_AGGREGATION_INDICATORS
+
+    is_rating_aggregation = resolved_indicator in RATING_AGGREGATION_INDICATORS
+    classification_ok = classification.reliable or (
+        is_rating_aggregation
+        and bool(resolved_indicator)
+        and (indicator_id or classification.indicator_id == resolved_indicator)
+        and fields_ok
+        and effective_rating is not None
+    )
 
     auto_approve = (
         bool(criterion_id)
-        and classification.reliable
+        and classification_ok
         and bool(resolved_indicator)
         and fields_ok
         and scoring_ok
         and auth_ok
         and identity_ok
-        and evidence_reason is None
+        and package_complete
         and duplicate_of is None
         and contradiction is None
         and text.strip()
         and extraction.reliable
         and scored["matched"]
-        and scored["base_points"] is not None
+        and (scored["base_points"] is not None or (is_rating_aggregation and effective_rating is not None))
         and not scored.get("flagged")
+        and not force_manual_review
+        and not field_overrides
     )
+
+    from simulation_scoring import compute_simulation_eligibility, stamp_simulation_metadata
+
+    simulation_eligible = compute_simulation_eligibility(
+        criterion_id=criterion_id,
+        classification_reliable=classification.reliable,
+        resolved_indicator=resolved_indicator,
+        fields_ok=fields_ok,
+        scoring_ok=scoring_ok,
+        identity_ok=identity_ok,
+        duplicate_of=duplicate_of,
+        contradiction=contradiction,
+        ocr_text=text,
+        ocr_reliable=extraction.reliable,
+        scored_matched=bool(scored["matched"]),
+        scored_base=scored.get("base_points"),
+        scored_flagged=bool(scored.get("flagged")),
+        points=float(points or 0),
+        package_complete_valid=package_complete,
+    )
+
+    evaluation_period = None
+    from kra1a_evaluation import SET_INDICATOR, SEF_INDICATOR, aggregate_rating_indicator
+
+    aggregated_indicator_points: float | None = None
+    if resolved_indicator in {SET_INDICATOR, SEF_INDICATOR}:
+        eval_info = {
+            "Academic year": fields.get("date") or "",
+            "Academic term": fields.get("academic_term") or "",
+            "Extracted rating": str(effective_rating) if effective_rating is not None else "",
+            "Extracted title": fields.get("title") or title,
+        }
+        eval_docs = _evaluation_period_pool(
+            resolved_indicator,
+            package_docs=package_docs,
+            context_docs=evaluation_context_documents,
+            current_slot_info=eval_info,
+            current_public_id=current_public_id,
+        )
+        if eval_docs:
+            evaluation_period = aggregate_rating_indicator(eval_docs, resolved_indicator)
+            if evaluation_period.get("finalized"):
+                aggregated_indicator_points = float(evaluation_period.get("points") or 0)
+                simulation_eligible = bool(simulation_eligible and aggregated_indicator_points > 0)
+            else:
+                simulation_eligible = False
 
     status = "system_approved" if auto_approve else "pendingReview"
     if not identity_ok:
@@ -341,6 +554,17 @@ def process_upload(
     )
     if len(validation) > 250:
         validation = validation[:247] + "..."
+
+    if is_rating_aggregation:
+        provisional_display = (
+            float(aggregated_indicator_points)
+            if aggregated_indicator_points is not None
+            else 0.0
+        )
+        credited_points = 0
+    else:
+        provisional_display = float(points or 0)
+        credited_points = int(round(points)) if auto_approve else 0
 
     extracted = {
         "Document type": indicator_meta["indicator"]["name"]
@@ -365,12 +589,15 @@ def process_upload(
         "OCR quality": "Reliable" if extraction.reliable else "Unreliable",
         "OCR note": extraction.note,
         "Extracted date": fields.get("date") or "",
+        "Academic year": fields.get("date") or "",
+        "Academic term": fields.get("academic_term") or "",
+        "Evaluation type": fields.get("evaluation_type") or "",
         "Extracted rating": str(effective_rating) if effective_rating is not None else "",
         "Base points": str(base),
         "Contribution percent": str(percent),
         "Scoring formula": SCORING_FORMULA,
-        "Provisional score": str(points),
-        "Contribution score": str(points),
+        "Provisional score": str(provisional_display),
+        "Contribution score": str(provisional_display),
     }
     if classification.candidates:
         extracted["Classification candidates"] = ", ".join(
@@ -387,9 +614,73 @@ def process_upload(
         extracted["Scoring note"] = scored["note"]
     if review_reasons and not auto_approve:
         extracted["Review reasons"] = "; ".join(dict.fromkeys(review_reasons))
-    extracted["Verification tier"] = "System approved" if auto_approve else "Pending review"
+    import json as _json
+
+    extracted["Evidence checklist"] = _json.dumps(evidence_assessment.get("requirements") or [])
+    if evidence_assessment.get("missingLabels"):
+        extracted["Missing evidence items"] = "; ".join(evidence_assessment["missingLabels"])
+    if evidence_assessment.get("uncertainLabels"):
+        extracted["Uncertain evidence items"] = "; ".join(evidence_assessment["uncertainLabels"])
+    extracted["Package completeness"] = "Complete" if package_complete else "Incomplete"
+    if evaluation_period:
+        filled = evaluation_period.get("filledCount") or 0
+        required = evaluation_period.get("requiredSemesters") or 6
+        extracted["Evaluation period filled"] = f"{filled}/{required}"
+        extracted["Evaluation period coverage"] = (
+            "Complete" if evaluation_period.get("coverageComplete") else "Incomplete"
+        )
+        if evaluation_period.get("averageRating") is not None:
+            extracted["Evaluation period average"] = str(evaluation_period["averageRating"])
+        if evaluation_period.get("finalized"):
+            prefix = "SET" if resolved_indicator == SET_INDICATOR else "SEF"
+            extracted[f"{prefix} period simulation score"] = str(
+                evaluation_period.get("points") or 0
+            )
+        if evaluation_period.get("issues"):
+            extracted["Evaluation period issues"] = "; ".join(evaluation_period["issues"][:4])
+    stamp_simulation_metadata(
+        extracted,
+        eligible=simulation_eligible,
+        points=provisional_display,
+        auto_approved=auto_approve,
+        awaiting_reviewer=not auto_approve,
+        ocr_reliable=extraction.reliable,
+        fields_ok=fields_ok,
+        scoring_ok=scoring_ok,
+        identity_ok=identity_ok,
+        indicator_id=resolved_indicator,
+        evidence_attestation_required=bool(evidence_reason),
+        package_needs_reviewer=bool(evidence_assessment.get("needsReviewer")),
+    )
+    if reviewer_correction and correction_entries:
+        from reviewer_metadata import merge_correction_log
+
+        log_json, extras = merge_correction_log(
+            prior_extracted_info,
+            reviewer_id=str(reviewer_correction.get("reviewer_id") or ""),
+            reason=str(reviewer_correction.get("reason") or ""),
+            new_entries=correction_entries,
+        )
+        extracted["Reviewer correction log"] = log_json
+        extracted.update(extras)
+    elif prior_extracted_info:
+        if prior_extracted_info.get("Reviewer correction log"):
+            extracted["Reviewer correction log"] = prior_extracted_info["Reviewer correction log"]
+        for key, value in prior_extracted_info.items():
+            if str(key).startswith("OCR original —"):
+                extracted[key] = value
 
     missing_title = not title
+    if (
+        is_rating_aggregation
+        and aggregated_indicator_points is not None
+        and aggregated_indicator_points > 0
+        and auto_approve
+    ):
+        extracted["Scoring status"] = "Automatically Scored"
+        extracted["Simulation score source"] = "System-calculated"
+        extracted["Processing branch"] = "Complete and valid"
+
     return {
         "kra": kra,
         "criterion_id": criterion_id,
@@ -397,10 +688,9 @@ def process_upload(
         "author_count": authors,
         "base_points": base,
         "contribution_percent": percent,
-        # points is the credited value. Only system-approved uploads store it.
-        # The calculated figure always remains in Provisional score.
-        "points": int(round(points)) if auto_approve else 0,
-        "exact_points": 0.0 if missing_title or not identity_ok else points,
+        # Document-level points stay 0 for SET/SEF semesters; indicator totals use period aggregation.
+        "points": credited_points,
+        "exact_points": 0.0 if missing_title or not identity_ok else provisional_display,
         "extracted_info": extracted,
         "extracted_text": text,
         "file_hash": file_hash(file_path),
@@ -408,6 +698,12 @@ def process_upload(
         "status": status,
         "validation_result": validation,
         "auto_approved": auto_approve,
+        "simulation_eligible": simulation_eligible,
+        "simulation_points": int(round(provisional_display)) if simulation_eligible else 0,
+        "evaluation_period": evaluation_period,
+        "_fields_ok": fields_ok,
+        "_identity_ok": identity_ok,
+        "_evidence_assessment": evidence_assessment,
     }
 
 
@@ -430,35 +726,34 @@ def _archive_simulation_if_version_changed(sim, previous_version: int, config_ve
         sim.history = history[-20:]
 
 
-def summarize_documents(documents, config: dict, current_rank: str | None) -> dict:
-    """Credited KRA totals for verified documents. Pending and rejected rows add nothing."""
+def summarize_documents(
+    documents,
+    config: dict,
+    current_rank: str | None,
+    *,
+    evaluation_records=None,
+) -> dict:
+    """Rank simulation totals using effective simulation scores (system or reviewer-adjusted)."""
+    from simulation_scoring import build_simulation_indicator_entries
+
     targets = config.get("targets") or dict(KRA_TARGETS)
     weight_band, applied_weights = weights_for_rank(config, current_rank)
     counts = {kra: 0 for kra in targets}
+    entries, includes_pending = build_simulation_indicator_entries(
+        documents, config, evaluation_records=evaluation_records
+    )
     best_by_indicator: dict[str, tuple] = {}
-    includes_pending = False
-    for doc in documents:
-        status = getattr(doc, "status", None)
-        if status in PROVISIONAL_STATUSES:
-            includes_pending = True
+    for entry in entries:
+        indicator_id = entry.get("indicator_id")
+        earned = float(entry.get("points") or 0)
+        if not indicator_id or earned <= 0:
             continue
-        if status not in VERIFIED_STATUSES:
-            continue
-        kra = getattr(doc, "kra", None)
-        if kra not in targets:
-            continue
-        earned = document_earned_points(doc, config)
-        if earned <= 0:
-            continue
-        key = getattr(doc, "indicator_id", None) or getattr(doc, "public_id", None)
-        current = best_by_indicator.get(key)
-        if current is None or earned > current[0]:
-            best_by_indicator[key] = (earned, kra, doc)
-
-    entries = [
-        {"indicator_id": getattr(doc, "indicator_id", None), "points": earned}
-        for earned, _kra, doc in best_by_indicator.values()
-    ]
+        for doc in documents:
+            if getattr(doc, "indicator_id", None) == indicator_id:
+                kra = getattr(doc, "kra", None)
+                if kra in targets:
+                    best_by_indicator[indicator_id] = (earned, kra, doc)
+                break
     credited = credited_kra_totals(entries, config)
     totals = {kra: float(credited.get(kra, 0.0)) for kra in targets}
     for earned, kra, _doc in best_by_indicator.values():
@@ -501,17 +796,86 @@ def summarize_documents(documents, config: dict, current_rank: str | None) -> di
             "verifiedKraPoints": {kra: round(totals.get(kra, 0.0), 2) for kra in targets},
             "weightedScore": weighted,
             "includesPending": includes_pending,
-            "pendingExcluded": True,
+            "pendingExcluded": False,
+            "simulationIncludesAutoScored": True,
             "publishedAt": config.get("publishedAt") or "",
             "status": config.get("status") or "published",
         },
     }
 
 
-def refresh_user_scores(user, Document, KraScore, RankSimulation, db):
+def reconcile_automatic_approvals(user, documents, config) -> None:
+    """Re-score pending uploads with full SET/SEF context so valid documents auto-approve."""
+    from kra1a_evaluation import RATING_AGGREGATION_INDICATORS
+
+    active = [doc for doc in documents if getattr(doc, "deleted_at", None) is None]
+    eval_context = [
+        doc
+        for doc in active
+        if getattr(doc, "indicator_id", None) in RATING_AGGREGATION_INDICATORS
+    ]
+    for doc in active:
+        status = (getattr(doc, "status", None) or "").strip()
+        if status in PROTECTED_DOC_STATUSES:
+            continue
+        if status not in RECONCILABLE_STATUSES:
+            continue
+        if getattr(doc, "reviewer_score", None) is not None:
+            continue
+        if getattr(doc, "decided_at", None) or getattr(doc, "review_snapshot", None):
+            continue
+        path = getattr(doc, "file_path", None)
+        stored_text = None
+        if not path or not Path(path).exists():
+            stored_text = getattr(doc, "extracted_text", None) or ""
+        processed = process_upload(
+            title=doc.title,
+            author=doc.author,
+            file_path=str(path) if stored_text is None and path else None,
+            stored_ocr_text=stored_text,
+            declared_kra=doc.kra,
+            criterion_id=doc.criterion_id,
+            indicator_id=doc.indicator_id,
+            config=config,
+            existing_docs=[item for item in active if item is not doc],
+            uploader_name=user.profile.full_name if user.profile else None,
+            prior_extracted_info=doc.extracted_info,
+            evaluation_context_documents=eval_context,
+            current_public_id=getattr(doc, "public_id", "") or "",
+        )
+        doc.status = processed["status"]
+        doc.points = processed["points"]
+        doc.flagged_for_review = processed["flagged_for_review"]
+        doc.validation_result = processed["validation_result"]
+        doc.extracted_info = processed["extracted_info"]
+        doc.simulation_points = processed.get("simulation_points") or 0
+        if processed.get("indicator_id"):
+            doc.indicator_id = processed["indicator_id"]
+        if processed.get("extracted_text") and not getattr(doc, "extracted_text", None):
+            doc.extracted_text = processed["extracted_text"]
+
+
+def refresh_user_scores(user, Document, KraScore, RankSimulation, db, EvaluationRecord=None):
+    from simulation_scoring import stamp_evaluation_period_metadata
+
     config = load_active_kra_config(db)
     current_rank = user.profile.current_rank if user.profile else "Instructor I"
-    summary = summarize_documents(user.documents, config, current_rank)
+    active_docs = [d for d in user.documents if getattr(d, "deleted_at", None) is None]
+    evaluation_records = []
+    if EvaluationRecord is not None:
+        from kra1a_workflow import backfill_evaluation_records
+
+        backfill_evaluation_records(user, active_docs, EvaluationRecord=EvaluationRecord, db=db)
+        evaluation_records = (
+            EvaluationRecord.query.filter_by(user_id=user.id)
+            .filter(EvaluationRecord.deleted_at.is_(None))
+            .all()
+        )
+    reconcile_automatic_approvals(user, active_docs, config)
+    stamp_evaluation_period_metadata(active_docs, evaluation_records=evaluation_records)
+    summary = summarize_documents(
+        user.documents, config, current_rank, evaluation_records=evaluation_records
+    )
     targets = summary["targets"]
     totals = summary["totals"]
     counts = summary["counts"]

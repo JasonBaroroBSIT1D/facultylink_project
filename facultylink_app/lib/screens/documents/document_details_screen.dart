@@ -1,6 +1,8 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/app_state.dart';
+import '../../services/api_client.dart';
 import '../../models/models.dart';
 import '../../navigation/app_routes.dart';
 import '../../theme/app_colors.dart';
@@ -36,10 +38,19 @@ class DocumentDetailsScreen extends StatelessWidget {
   }
 }
 
-class _DocumentDetailsBody extends StatelessWidget {
+class _DocumentDetailsBody extends StatefulWidget {
   const _DocumentDetailsBody({required this.document});
 
   final FacultyDocument document;
+
+  @override
+  State<_DocumentDetailsBody> createState() => _DocumentDetailsBodyState();
+}
+
+class _DocumentDetailsBodyState extends State<_DocumentDetailsBody> {
+  FacultyDocument get document => widget.document;
+  String? _localError;
+  bool _working = false;
 
   static const _scoringKeys = [
     'Assigned KRA',
@@ -60,6 +71,89 @@ class _DocumentDetailsBody extends StatelessWidget {
       }
     }
     return out;
+  }
+
+  Future<void> _confirmDelete() async {
+    final ok = await showConfirmDialog(
+      context: context,
+      title: 'Delete document?',
+      message:
+          'This removes the upload from your active list. The record is kept for audit purposes.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _working = true;
+      _localError = null;
+    });
+    try {
+      await AppState.instance.deleteDocument(document.id);
+      if (!mounted) return;
+      showAppSnackBar(context, 'Document deleted.');
+      Navigator.pop(context);
+    } on ApiException catch (error) {
+      setState(() => _localError = error.message);
+    } catch (error) {
+      setState(() => _localError = error.toString());
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _replaceFile() async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg'],
+      withData: true,
+    );
+    final file = picked?.files.single;
+    if (file == null || file.bytes == null) return;
+    setState(() {
+      _working = true;
+      _localError = null;
+    });
+    try {
+      await AppState.instance.replaceDocument(
+        documentId: document.id,
+        fileName: file.name,
+        fileBytes: file.bytes!,
+        title: document.title,
+      );
+      if (!mounted) return;
+      showAppSnackBar(context, 'Document replaced and sent for review.');
+      Navigator.pop(context);
+    } on ApiException catch (error) {
+      setState(() => _localError = error.message);
+    } catch (error) {
+      setState(() => _localError = error.toString());
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _requestWithdrawal() async {
+    final ok = await showConfirmDialog(
+      context: context,
+      title: 'Request withdrawal?',
+      message:
+          'Ask an administrator to withdraw credited points for this approved document.',
+      confirmLabel: 'Submit request',
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _working = true;
+      _localError = null;
+    });
+    try {
+      await AppState.instance.requestDocumentWithdrawal(document.id);
+      if (!mounted) return;
+      showAppSnackBar(context, 'Withdrawal request submitted.');
+    } on ApiException catch (error) {
+      setState(() => _localError = error.message);
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
   }
 
   void _openOriginal(BuildContext context) {
@@ -87,22 +181,81 @@ class _DocumentDetailsBody extends StatelessWidget {
         : document.author!.trim();
     final color = AppColors.kra(document.kra);
 
+    final actionsEnabled = !_working && !AppState.instance.refreshInProgress;
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Document details')),
+      appBar: AppBar(
+        title: const Text('Document details'),
+        actions: [
+          PopupMenuButton<String>(
+            enabled: actionsEnabled,
+            onSelected: (value) {
+              switch (value) {
+                case 'view':
+                  _openOriginal(context);
+                case 'replace':
+                  _replaceFile();
+                case 'delete':
+                  _confirmDelete();
+                case 'withdraw':
+                  _requestWithdrawal();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'view', child: Text('View document')),
+              PopupMenuItem(
+                value: 'replace',
+                enabled: document.canReplace,
+                child: const Text('Replace document'),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                enabled: document.canDelete,
+                child: const Text('Delete document'),
+              ),
+              PopupMenuItem(
+                value: 'withdraw',
+                enabled: document.canRequestWithdrawal,
+                child: const Text('Request withdrawal'),
+              ),
+            ],
+          ),
+        ],
+      ),
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           child: PrimaryButton(
             label: 'View document',
             icon: Icons.visibility_outlined,
-            onPressed: () => _openOriginal(context),
+            onPressed: actionsEnabled ? () => _openOriginal(context) : null,
           ),
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: [
+      body: RefreshIndicator(
+        onRefresh: () => AppState.instance.refreshFromApi(label: 'Refreshing documents...'),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          children: [
+          if (_localError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ErrorState(
+                message: _localError!,
+                onRetry: () => AppState.instance.refreshFromApi(),
+              ),
+            ),
+          if (!document.canDelete && !document.canReplace && !document.canRequestWithdrawal)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                document.creditsPoints
+                    ? 'Approved documents stay on record. Use Request withdrawal if points must be reversed.'
+                    : 'This document cannot be deleted or replaced while a reviewer decision or credited score applies.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -196,6 +349,19 @@ class _DocumentDetailsBody extends StatelessWidget {
                   _FactRow(
                     label: 'Verification',
                     value: document.extractedInfo['Verification tier']!,
+                  ),
+                _FactRow(
+                  label: 'Simulation score',
+                  value: document.simulationScoreLabel,
+                ),
+                _FactRow(
+                  label: 'Score source',
+                  value: document.simulationSourceLabel,
+                ),
+                if (document.reviewerOversightStatus?.isNotEmpty == true)
+                  _FactRow(
+                    label: 'Reviewer oversight',
+                    value: document.reviewerOversightStatus!,
                   ),
                 _FactRow(
                   label: 'Provisional Score',
@@ -303,6 +469,7 @@ class _DocumentDetailsBody extends StatelessWidget {
             ),
           ],
         ],
+        ),
       ),
     );
   }

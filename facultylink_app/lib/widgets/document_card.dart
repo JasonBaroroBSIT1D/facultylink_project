@@ -25,10 +25,18 @@ class DocumentCard extends StatelessWidget {
     final meta = [
       if (criterionLabel != null && criterionLabel!.isNotEmpty) criterionLabel!,
       date,
-      if (document.creditsPoints)
-        'Credited: ${document.creditedLabel} pts'
+      if (document.countsInSimulation)
+        'Simulation: ${document.simulationScoreLabel} (${document.simulationSourceLabel})'
+      else if (document.creditsPoints)
+        document.indicatorId == 'kra1-a-student' ||
+                document.indicatorId == 'kra1-a-supervisor'
+            ? 'System approved · ${document.simulationScoreLabel}'
+            : 'Credited: ${document.creditedLabel} pts'
+      else if (document.indicatorId == 'kra1-a-student' ||
+          document.indicatorId == 'kra1-a-supervisor')
+        document.simulationScoreLabel
       else
-        'Credited: 0',
+        'Simulation: Score unavailable',
     ].join(' · ');
 
     return Material(

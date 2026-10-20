@@ -21,6 +21,8 @@ from kra_catalog import catalog_for_api, criterion_for_indicator, validate_selec
 from models import (
     AuditLog,
     Document,
+    EvaluationRecord,
+    EvidencePackage,
     KraScore,
     Notification,
     PreparationPeriod,
@@ -30,8 +32,10 @@ from models import (
     User,
     db,
 )
+from evidence_packages import new_package_public_id, re_evaluate_and_persist
 from kra_config import load_active_kra_config
 from schedule import preparation_period_payload
+from kra1a_evaluation import RATING_AGGREGATION_INDICATORS
 from scoring import process_upload, refresh_user_scores
 import password_reset
 from sqlalchemy import text
@@ -55,6 +59,9 @@ def ensure_shared_schema():
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS reviewer_remarks TEXT",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS review_snapshot TEXT",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS decided_at VARCHAR(40)",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS active_version INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS simulation_points INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE rank_simulations ADD COLUMN IF NOT EXISTS kra_config_version INTEGER DEFAULT 0",
         "ALTER TABLE rank_simulations ADD COLUMN IF NOT EXISTS scoring_formula VARCHAR(160)",
         "ALTER TABLE rank_simulations ADD COLUMN IF NOT EXISTS config_snapshot JSON",
@@ -66,6 +73,49 @@ def ensure_shared_schema():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash VARCHAR(64)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMP",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS package_id INTEGER",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS requirement_index INTEGER",
+        """
+        CREATE TABLE IF NOT EXISTS evaluation_records (
+            id SERIAL PRIMARY KEY,
+            public_id VARCHAR(40) UNIQUE NOT NULL,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            source_document_id INTEGER NOT NULL REFERENCES documents(id),
+            indicator_id VARCHAR(80) NOT NULL,
+            academic_year VARCHAR(20) NOT NULL,
+            semester VARCHAR(4) NOT NULL,
+            rating DOUBLE PRECISION NOT NULL,
+            status VARCHAR(40) NOT NULL DEFAULT 'pendingReview',
+            validation_status VARCHAR(40) NOT NULL DEFAULT 'Needs Verification',
+            validation_message VARCHAR(500),
+            source_line VARCHAR(300),
+            page_hint VARCHAR(40),
+            extraction_kind VARCHAR(20) NOT NULL DEFAULT 'individual',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            deleted_at TIMESTAMP
+        )
+        """,
+        "ALTER TABLE faculty_profiles ADD COLUMN IF NOT EXISTS evaluation_period_exception VARCHAR(80)",
+        "ALTER TABLE faculty_profiles ADD COLUMN IF NOT EXISTS evaluation_period_exception_verified BOOLEAN NOT NULL DEFAULT FALSE",
+        """
+        CREATE TABLE IF NOT EXISTS evidence_packages (
+            id SERIAL PRIMARY KEY,
+            public_id VARCHAR(40) UNIQUE NOT NULL,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            kra VARCHAR(40) NOT NULL,
+            criterion_id VARCHAR(80) NOT NULL,
+            indicator_id VARCHAR(80) NOT NULL,
+            accomplishment_title VARCHAR(255),
+            reviewer_requirement_states JSONB DEFAULT '{}'::jsonb,
+            evaluation_exception_verified BOOLEAN NOT NULL DEFAULT FALSE,
+            checklist_json TEXT,
+            simulation_eligible BOOLEAN NOT NULL DEFAULT FALSE,
+            simulation_points DOUBLE PRECISION NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
     ]
     for sql in statements:
         try:
@@ -77,7 +127,7 @@ def ensure_shared_schema():
 
 def sync_user_scores(user: User):
     """Recompute KRA totals and Rank Simulation from the active published config."""
-    refresh_user_scores(user, Document, KraScore, RankSimulation, db)
+    refresh_user_scores(user, Document, KraScore, RankSimulation, db, EvaluationRecord)
     db.session.commit()
     return user.simulation
 
@@ -192,14 +242,15 @@ def apply_review(
             if action == "correct"
             else "Validated by reviewer."
         )
-        info = dict(doc.extracted_info or {})
-        info["Verified score"] = str(awarded)
-        info["Verification tier"] = "Reviewer verified"
+        from simulation_scoring import mark_reviewer_adjusted
+
+        info = mark_reviewer_adjusted(doc.extracted_info or {}, awarded)
         if prior_status == "system_approved":
             info["Prior approval"] = "System approved before reviewer confirmation."
         if contribution_percent not in (None, ""):
             info["Contribution percent"] = str(contribution_percent)
         doc.extracted_info = info
+        doc.simulation_points = int(round(awarded))
         add_notification(
             doc.user_id,
             "documentValidated",
@@ -208,11 +259,15 @@ def apply_review(
             kra=doc.kra,
         )
     elif action == "revise":
+        from simulation_scoring import mark_simulation_removed
+
         doc.status = "needsRevision"
         doc.points = 0
+        doc.simulation_points = 0
         doc.reviewer_score = None
         doc.reviewer_feedback = feedback or "Please revise and resubmit."
         doc.validation_result = "Returned for revision."
+        doc.extracted_info = mark_simulation_removed(doc.extracted_info or {}, reason="Revision requested")
         add_notification(
             doc.user_id,
             "documentNeedsRevision",
@@ -222,11 +277,15 @@ def apply_review(
             state="actionRequired",
         )
     elif action == "reject":
+        from simulation_scoring import mark_simulation_removed
+
         doc.status = "invalid"
         doc.points = 0
+        doc.simulation_points = 0
         doc.reviewer_score = None
         doc.reviewer_feedback = feedback or "This file could not be validated."
         doc.validation_result = "Rejected by reviewer."
+        doc.extracted_info = mark_simulation_removed(doc.extracted_info or {}, reason="Rejected by reviewer")
         add_notification(
             doc.user_id,
             "reviewerFeedback",
@@ -282,7 +341,7 @@ def add_notification(user_id, kind, message, document_id=None, kra=None, state="
 def dashboard_payload(user: User):
     sync_user_scores(user)
     docs = user.documents
-    validated = [d for d in docs if d.status == "validated"]
+    validated = [d for d in docs if d.status in {"validated", "system_approved"}]
     pending = [d for d in docs if d.status == "pendingReview"]
     action = [d for d in docs if d.status in {"needsRevision", "invalid"}]
     scores = [row.to_dict() for row in user.kra_scores]
@@ -615,15 +674,87 @@ def dashboard(user):
 @app.get("/api/documents")
 @faculty_required
 def list_documents(user):
-    docs = sorted(user.documents, key=lambda d: d.submitted_at or datetime.min, reverse=True)
+    sync_user_scores(user)
+    db.session.commit()
+    docs = sorted(
+        (d for d in user.documents if d.deleted_at is None),
+        key=lambda d: d.submitted_at or datetime.min,
+        reverse=True,
+    )
     return jsonify([doc.to_dict() for doc in docs])
+
+
+@app.get("/api/evidence-packages")
+@faculty_required
+def list_evidence_packages(user):
+    packages = (
+        EvidencePackage.query.filter_by(user_id=user.id)
+        .order_by(EvidencePackage.updated_at.desc())
+        .all()
+    )
+    return jsonify([pkg.to_dict() for pkg in packages])
+
+
+@app.post("/api/evidence-packages")
+@faculty_required
+def create_evidence_package(user):
+    kra = (request.json or {}).get("kra") or "instruction"
+    criterion_id = ((request.json or {}).get("criterionId") or "").strip()
+    indicator_id = ((request.json or {}).get("indicatorId") or "").strip()
+    title = ((request.json or {}).get("accomplishmentTitle") or "").strip()
+    if not criterion_id or not indicator_id:
+        return jsonify({"error": "Criterion and indicator are required."}), 400
+    ok, message = validate_selection(kra=kra, criterion_id=criterion_id, indicator_id=indicator_id)
+    if not ok:
+        return jsonify({"error": message}), 400
+    package = EvidencePackage(
+        public_id=new_package_public_id(),
+        user_id=user.id,
+        kra=kra,
+        criterion_id=criterion_id,
+        indicator_id=indicator_id,
+        accomplishment_title=title or None,
+        checklist_json="[]",
+    )
+    db.session.add(package)
+    db.session.commit()
+    return jsonify(package.to_dict()), 201
+
+
+@app.get("/api/evidence-packages/<public_id>")
+@faculty_required
+def get_evidence_package(user, public_id):
+    package = EvidencePackage.query.filter_by(user_id=user.id, public_id=public_id).first()
+    if not package:
+        return jsonify({"error": "Evidence package not found."}), 404
+    re_evaluate_and_persist(package, db=db, Document=Document, user=user)
+    db.session.commit()
+    return jsonify(package.to_dict())
+
+
+@app.post("/api/evidence-packages/<public_id>/refresh")
+@faculty_required
+def refresh_evidence_package(user, public_id):
+    package = EvidencePackage.query.filter_by(user_id=user.id, public_id=public_id).first()
+    if not package:
+        return jsonify({"error": "Evidence package not found."}), 404
+    re_evaluate_and_persist(
+        package,
+        db=db,
+        Document=Document,
+        user=user,
+        existing_docs=Document.query.filter_by(user_id=user.id).all(),
+    )
+    sync_user_scores(user)
+    db.session.commit()
+    return jsonify(package.to_dict())
 
 
 @app.get("/api/documents/<public_id>")
 @faculty_required
 def get_document(user, public_id):
     doc = Document.query.filter_by(user_id=user.id, public_id=public_id).first()
-    if not doc:
+    if not doc or doc.deleted_at is not None:
         return jsonify({"error": "Document not found."}), 404
     return jsonify(doc.to_dict())
 
@@ -684,6 +815,19 @@ def create_document(user):
 
     existing = Document.query.filter_by(user_id=user.id).all()
     uploader_name = user.profile.full_name if user.profile else None
+    package_public = (request.form.get("packageId") or "").strip()
+    requirement_raw = (request.form.get("requirementIndex") or "0").strip()
+    try:
+        requirement_index = int(requirement_raw)
+    except ValueError:
+        requirement_index = 0
+
+    eval_context = [
+        doc
+        for doc in existing
+        if getattr(doc, "indicator_id", None) in RATING_AGGREGATION_INDICATORS
+        and getattr(doc, "deleted_at", None) is None
+    ]
     processed = process_upload(
         title=title,
         author=author,
@@ -695,11 +839,14 @@ def create_document(user):
         config=load_active_kra_config(db),
         existing_docs=existing,
         uploader_name=uploader_name,
+        evaluation_context_documents=eval_context,
     )
     if processed["file_hash"]:
-        duplicate = Document.query.filter_by(
-            user_id=user.id, file_hash=processed["file_hash"]
-        ).first()
+        duplicate = (
+            Document.query.filter_by(user_id=user.id, file_hash=processed["file_hash"])
+            .filter(Document.deleted_at.is_(None))
+            .first()
+        )
         if duplicate:
             try:
                 saved_path.unlink(missing_ok=True)
@@ -730,8 +877,65 @@ def create_document(user):
         criterion_id=criterion_id or processed.get("criterion_id"),
         mime_type=mime_type,
         file_size=file_size,
+        simulation_points=processed.get("simulation_points") or 0,
     )
     db.session.add(doc)
+    db.session.flush()
+    indicator_id = processed.get("indicator_id")
+    if criterion_id == "kra1-a" or indicator_id in RATING_AGGREGATION_INDICATORS:
+        from document_validation import extract_fields
+        from kra1a_workflow import sync_evaluation_records_for_document
+
+        fields = extract_fields(
+            title=title,
+            author=author,
+            ocr_text=processed.get("extracted_text") or "",
+            indicator_id=indicator_id,
+        )
+        sync_evaluation_records_for_document(
+            doc,
+            ocr_text=processed.get("extracted_text") or "",
+            uploader_name=uploader_name,
+            fields=fields,
+            indicator_id=indicator_id,
+            EvaluationRecord=EvaluationRecord,
+            db=db,
+        )
+    if indicator_id:
+        package = None
+        if package_public:
+            package = EvidencePackage.query.filter_by(user_id=user.id, public_id=package_public).first()
+            if not package:
+                db.session.rollback()
+                try:
+                    saved_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                return jsonify({"error": "Evidence package not found."}), 404
+            if package.indicator_id != indicator_id:
+                db.session.rollback()
+                return jsonify({"error": "Document indicator does not match the evidence package."}), 400
+        else:
+            package = EvidencePackage(
+                public_id=new_package_public_id(),
+                user_id=user.id,
+                kra=kra,
+                criterion_id=criterion_id or processed.get("criterion_id") or "",
+                indicator_id=indicator_id,
+                accomplishment_title=title,
+            )
+            db.session.add(package)
+            db.session.flush()
+        doc.package_id = package.id
+        doc.requirement_index = max(requirement_index, 0)
+        doc.indicator_id = indicator_id
+        re_evaluate_and_persist(
+            package,
+            db=db,
+            Document=Document,
+            user=user,
+            existing_docs=existing,
+        )
     add_notification(
         user.id,
         "documentSubmitted",
@@ -744,7 +948,6 @@ def create_document(user):
         kra=doc.kra,
     )
     write_audit(user.email, "upload_document", title)
-    db.session.flush()
     sync_user_scores(user)
     db.session.commit()
     return jsonify(doc.to_dict()), 201
@@ -814,11 +1017,191 @@ def _resolve_upload_path(stored: str | None) -> Path | None:
     return None
 
 
+@app.delete("/api/documents/<public_id>")
+@faculty_required
+def delete_document(user, public_id):
+    from document_lifecycle import append_submission_history, faculty_may_delete, utcnow
+
+    doc = Document.query.filter_by(user_id=user.id, public_id=public_id).first()
+    if not doc or doc.deleted_at is not None:
+        return jsonify({"error": "Document not found."}), 404
+    allowed, message = faculty_may_delete(doc)
+    if not allowed:
+        return jsonify({"error": message}), 409
+    info = dict(doc.extracted_info or {})
+    info.update(
+        append_submission_history(
+            info,
+            {
+                "event": "deleted",
+                "at": utcnow().isoformat(),
+                "status": doc.status,
+                "fileName": doc.file_name,
+                "version": doc.active_version or 1,
+            },
+        )
+    )
+    doc.extracted_info = info
+    doc.deleted_at = utcnow()
+    doc.points = 0
+    doc.flagged_for_review = False
+    write_audit(user.email, "delete_document", f"{doc.public_id} soft-deleted")
+    sync_user_scores(user)
+    db.session.commit()
+    return jsonify({"ok": True, "id": doc.public_id, "message": "Document removed from your active list."})
+
+
+@app.post("/api/documents/<public_id>/replace")
+@faculty_required
+def replace_document(user, public_id):
+    from document_lifecycle import append_submission_history, archive_upload_file, faculty_may_replace, utcnow
+
+    doc = Document.query.filter_by(user_id=user.id, public_id=public_id).first()
+    if not doc or doc.deleted_at is not None:
+        return jsonify({"error": "Document not found."}), 404
+    allowed, message = faculty_may_replace(doc)
+    if not allowed:
+        return jsonify({"error": message}), 409
+    uploaded = request.files.get("file")
+    if not uploaded or not uploaded.filename:
+        return jsonify({"error": "A replacement file is required."}), 400
+
+    upload_dir = Path(app.config["UPLOAD_FOLDER"]).resolve()
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    version = int(doc.active_version or 1)
+    old_path = _resolve_upload_path(doc.file_path)
+    archived = None
+    if old_path:
+        archived = archive_upload_file(old_path, upload_dir, doc.public_id, version)
+
+    file_name = request.form.get("fileName") or uploaded.filename
+    title = (request.form.get("title") or "").strip() or doc.title
+    safe = f"{uuid4().hex}_{Path(file_name).name}"
+    saved_path = (upload_dir / safe).resolve()
+    uploaded.save(saved_path)
+    mime_type = uploaded.mimetype or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+    file_size = saved_path.stat().st_size if saved_path.exists() else None
+
+    info = dict(doc.extracted_info or {})
+    info.update(
+        append_submission_history(
+            info,
+            {
+                "event": "replaced",
+                "at": utcnow().isoformat(),
+                "version": version,
+                "fileName": doc.file_name,
+                "archivedPath": archived or "",
+                "status": doc.status,
+                "reviewerFeedback": doc.reviewer_feedback,
+            },
+        )
+    )
+    history_json = info.get("Submission history")
+
+    existing = (
+        Document.query.filter_by(user_id=user.id)
+        .filter(Document.public_id != doc.public_id)
+        .filter(Document.deleted_at.is_(None))
+        .all()
+    )
+    uploader_name = user.profile.full_name if user.profile else None
+    processed = process_upload(
+        title=title,
+        author=doc.author,
+        file_path=str(saved_path),
+        declared_kra=doc.kra,
+        criterion_id=doc.criterion_id,
+        indicator_id=doc.indicator_id,
+        config=load_active_kra_config(db),
+        existing_docs=existing,
+        uploader_name=uploader_name,
+    )
+    if processed["file_hash"]:
+        duplicate = (
+            Document.query.filter_by(user_id=user.id, file_hash=processed["file_hash"])
+            .filter(Document.deleted_at.is_(None))
+            .filter(Document.public_id != doc.public_id)
+            .first()
+        )
+        if duplicate:
+            try:
+                saved_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return jsonify({"error": "Duplicate document ignored.", "existingId": duplicate.public_id}), 409
+
+    new_info = dict(processed["extracted_info"])
+    if history_json:
+        new_info["Submission history"] = history_json
+    doc.title = title
+    doc.file_name = file_name
+    doc.file_path = str(saved_path)
+    doc.mime_type = mime_type
+    doc.file_size = file_size
+    doc.file_hash = processed["file_hash"]
+    doc.extracted_info = new_info
+    doc.extracted_text = processed["extracted_text"]
+    doc.validation_result = processed["validation_result"]
+    doc.indicator_id = processed.get("indicator_id") or doc.indicator_id
+    doc.flagged_for_review = processed["flagged_for_review"]
+    doc.status = "pendingReview"
+    doc.points = 0
+    doc.reviewer_score = None
+    doc.review_snapshot = None
+    doc.decided_at = None
+    doc.reviewer_feedback = None
+    doc.reviewer_remarks = None
+    doc.active_version = version + 1
+    doc.submitted_at = utcnow()
+    add_notification(
+        user.id,
+        "documentSubmitted",
+        f"{title} was replaced and is pending review again.",
+        document_id=doc.public_id,
+        kra=doc.kra,
+    )
+    write_audit(user.email, "replace_document", doc.public_id)
+    sync_user_scores(user)
+    db.session.commit()
+    return jsonify(doc.to_dict())
+
+
+@app.post("/api/documents/<public_id>/withdraw")
+@faculty_required
+def request_withdrawal(user, public_id):
+    from document_lifecycle import faculty_may_request_withdrawal, utcnow
+
+    doc = Document.query.filter_by(user_id=user.id, public_id=public_id).first()
+    if not doc or doc.deleted_at is not None:
+        return jsonify({"error": "Document not found."}), 404
+    allowed, message = faculty_may_request_withdrawal(doc)
+    if not allowed:
+        return jsonify({"error": message}), 409
+    info = dict(doc.extracted_info or {})
+    if info.get("Withdrawal requested"):
+        return jsonify({"error": "A withdrawal request is already on record for this document."}), 409
+    stamp = utcnow().isoformat()
+    info["Withdrawal requested"] = stamp
+    info["Withdrawal reason"] = (request.get_json(silent=True) or {}).get("reason") or ""
+    doc.extracted_info = info
+    add_notification(
+        user.id,
+        "documentSubmitted",
+        f"Withdrawal requested for {doc.title}. An administrator will review the request.",
+        document_id=doc.public_id,
+        kra=doc.kra,
+    )
+    write_audit(user.email, "withdraw_request", doc.public_id)
+    db.session.commit()
+    return jsonify({"ok": True, "message": "Withdrawal request recorded.", "document": doc.to_dict()})
+
+
 @app.post("/api/documents/<public_id>/process")
 @faculty_required
 def reprocess_document(user, public_id):
     doc = Document.query.filter_by(user_id=user.id, public_id=public_id).first()
-    if not doc:
+    if not doc or doc.deleted_at is not None:
         return jsonify({"error": "Document not found."}), 404
     # A reviewer decision and its score stay as recorded. Reprocessing must not replace them.
     if doc.status in {"validated", "needsRevision", "invalid"} or doc.reviewer_score is not None or doc.decided_at or doc.review_snapshot:
@@ -826,6 +1209,12 @@ def reprocess_document(user, public_id):
             "error": "This document already has a reviewer decision, so it was left unchanged."
         }), 409
     existing = Document.query.filter_by(user_id=user.id).filter(Document.public_id != doc.public_id).all()
+    eval_context = [
+        item
+        for item in existing + [doc]
+        if getattr(item, "indicator_id", None) in RATING_AGGREGATION_INDICATORS
+        and getattr(item, "deleted_at", None) is None
+    ]
     processed = process_upload(
         title=doc.title,
         author=doc.author,
@@ -836,6 +1225,8 @@ def reprocess_document(user, public_id):
         config=load_active_kra_config(db),
         existing_docs=existing,
         uploader_name=doc.owner.profile.full_name if doc.owner.profile else None,
+        evaluation_context_documents=eval_context,
+        current_public_id=doc.public_id,
     )
     doc.points = processed["points"]
     doc.extracted_info = processed["extracted_info"]
@@ -857,6 +1248,18 @@ def reprocess_document(user, public_id):
 def kra_scores(user):
     sync_user_scores(user)
     return jsonify([row.to_dict() for row in user.kra_scores])
+
+
+@app.get("/api/assessment/kra1-criterion-a")
+@faculty_required
+def kra1_criterion_a(user):
+    """Teaching Effectiveness (SET/SEF) semester records and aggregated Criterion A score."""
+    from kra1a_workflow import criterion_a_assessment
+
+    sync_user_scores(user)
+    active = [d for d in user.documents if d.deleted_at is None]
+    payload = criterion_a_assessment(user, active, EvaluationRecord=EvaluationRecord)
+    return jsonify(payload)
 
 
 @app.get("/api/assessment/requirements")
@@ -959,7 +1362,8 @@ def staff_login():
 @staff_jwt_required
 def review_queue_api(user):
     queue = (
-        Document.query.filter(
+        Document.query.filter(Document.deleted_at.is_(None))
+        .filter(
             Document.status.in_(
                 ["pendingReview", "processing", "needsRevision", "system_approved"]
             )

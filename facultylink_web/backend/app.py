@@ -25,6 +25,8 @@ if str(MOBILE_BACKEND) not in sys.path:
     sys.path.insert(0, str(MOBILE_BACKEND))
 
 import reviewer_credentials
+from document_lifecycle import metadata_correction_block_reason
+from kra_config import scoring_config_from_kra_row
 from password_reset import password_problem
 
 KRA_IDS = {
@@ -343,6 +345,35 @@ def ensure_review_support(conn):
     conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS reviewer_remarks TEXT")
     conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS review_snapshot TEXT")
     conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS decided_at TEXT")
+    conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP")
+    conn.execute(
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS active_version INTEGER NOT NULL DEFAULT 1"
+    )
+    conn.execute(
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS simulation_points INTEGER NOT NULL DEFAULT 0"
+    )
+    conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS package_id INTEGER")
+    conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS requirement_index INTEGER")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evidence_packages (
+            id SERIAL PRIMARY KEY,
+            public_id VARCHAR(40) UNIQUE NOT NULL,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            kra VARCHAR(40) NOT NULL,
+            criterion_id VARCHAR(80) NOT NULL,
+            indicator_id VARCHAR(80) NOT NULL,
+            accomplishment_title VARCHAR(255),
+            reviewer_requirement_states JSONB DEFAULT '{}'::jsonb,
+            evaluation_exception_verified BOOLEAN NOT NULL DEFAULT FALSE,
+            checklist_json TEXT,
+            simulation_eligible BOOLEAN NOT NULL DEFAULT FALSE,
+            simulation_points DOUBLE PRECISION NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
     conn.execute("ALTER TABLE faculty_profiles ADD COLUMN IF NOT EXISTS reviewer_user_id INTEGER")
     sole = sole_reviewer_id(conn)
     if sole is not None:
@@ -851,9 +882,30 @@ def document_record(row):
         "remarks": row.get("reviewer_remarks") or "",
         "review": load_review(row.get("review_snapshot")),
         "decidedAt": row.get("decided_at"),
+        "packageId": row.get("package_public_id") or "",
+        "requirementIndex": row.get("requirement_index"),
     }
+    block_reason = metadata_correction_block_reason(row)
+    record["canCorrectMetadata"] = block_reason is None
+    if block_reason:
+        record["metadataCorrectionBlockedReason"] = block_reason
     if score is not None:
         record["reviewerScore"] = float(score)
+
+    from simulation_scoring import document_simulation_api_fields
+
+    class _SimRow:
+        pass
+
+    sim_doc = _SimRow()
+    sim_doc.status = row["status"]
+    sim_doc.extracted_info = extracted_info
+    sim_doc.reviewer_score = score
+    sim_doc.points = row["points"]
+    sim_doc.indicator_id = stored_indicator
+    sim_doc.deleted_at = row.get("deleted_at")
+    sim_doc.simulation_points = row.get("simulation_points") or 0
+    record.update(document_simulation_api_fields(sim_doc))
     return record
 
 
@@ -1007,7 +1059,18 @@ def state():
     conn, user = require_user()
     users = [public_user(conn, row) for row in conn.execute("SELECT * FROM users ORDER BY id")]
     faculty = faculty_records(conn)
-    documents = [document_record(row) for row in conn.execute("SELECT * FROM documents ORDER BY id")]
+    documents = [
+        document_record(row)
+        for row in conn.execute(
+            """
+            SELECT documents.*, evidence_packages.public_id AS package_public_id
+            FROM documents
+            LEFT JOIN evidence_packages ON evidence_packages.id = documents.package_id
+            WHERE documents.deleted_at IS NULL
+            ORDER BY documents.id
+            """
+        )
+    ]
     notifications = [notification_record(row) for row in conn.execute("SELECT * FROM notifications ORDER BY id")]
     audit = [audit_record(row) for row in conn.execute(
         """
@@ -1133,6 +1196,9 @@ def awarded_review(incoming, kra_settings):
         return None, "The official maximum does not match the published KRA configuration."
     if assigned > official_max:
         return None, "The assigned score cannot exceed the official maximum."
+    contrib = published.get("contribution")
+    if contrib != "declared" and abs(percent - 100.0) > 0.001:
+        return None, "Contribution percentage does not apply to this indicator."
     final_score = round(assigned * (percent / 100.0), 2)
     if final_score > official_max:
         return None, "The score after contribution cannot exceed the official maximum."
@@ -1165,7 +1231,7 @@ def download_document_file(document_id):
         return json_error("Sign in as a reviewer or administrator to open the file.", 401)
     ensure_review_support(conn)
     row = conn.execute("SELECT * FROM documents WHERE public_id = %s", (document_id,)).fetchone()
-    if not row:
+    if not row or row.get("deleted_at"):
         conn.close()
         return json_error("Document not found.", 404)
     allowed = visible_faculty_ids(conn, user)
@@ -1232,6 +1298,121 @@ def _document_info(raw):
     return {}
 
 
+def document_approval_blockers(row, indicator_id, uploader_name=None, conn=None):
+    """Return structured reasons a document cannot be approved yet."""
+    from document_validation import (
+        validate_indicator_fields,
+        validate_scoring_inputs,
+        verify_identity,
+    )
+    from indicator_rules import rule_for
+    from reviewer_metadata import ALLOWED_OVERRIDE_KEYS, fields_from_extracted_info
+
+    _ = ALLOWED_OVERRIDE_KEYS  # documentation anchor for reviewer correction keys
+    info = _document_info(row.get("extracted_info"))
+    fields = fields_from_extracted_info(info)
+    text = (row.get("extracted_text") or "").strip()
+    blockers = []
+    iid = indicator_id or row.get("indicator_id")
+    if not iid:
+        blockers.append({"kind": "ineligible", "message": "Match an Annex I indicator before approval."})
+        return blockers
+    if not text and not info.get("Reviewer verified extraction"):
+        blockers.append(
+            {
+                "kind": "ocr_gap",
+                "message": "No readable text was stored from OCR. Re-extract or correct extracted information from the original document.",
+            }
+        )
+
+    fields_ok, field_reasons = validate_indicator_fields(iid, fields, ocr_text=text)
+    if not fields_ok:
+        for reason in field_reasons:
+            blockers.append({"kind": "missing_metadata", "message": reason})
+
+    rating = fields.get("rating")
+    scoring_ok, scoring_reasons = validate_scoring_inputs(
+        iid, rating=rating, contribution_percent=None
+    )
+    if not scoring_ok:
+        for reason in scoring_reasons:
+            blockers.append({"kind": "missing_metadata", "message": reason})
+
+    identity_ok, _, identity_message = verify_identity(
+        iid,
+        uploader_name=uploader_name,
+        named_parties=fields.get("named_parties") or fields.get("authors") or [],
+    )
+    if not identity_ok and identity_message:
+        blockers.append({"kind": "invalid", "message": identity_message})
+
+    from evidence_validation import assess_package_requirements
+
+    package_docs = [row]
+    package_id = row.get("package_id")
+    if package_id and conn is not None:
+        siblings = conn.execute(
+            """
+            SELECT extracted_info, extracted_text, requirement_index, deleted_at, public_id
+            FROM documents
+            WHERE package_id = %s AND (deleted_at IS NULL)
+            """,
+            (package_id,),
+        ).fetchall()
+        if siblings:
+            package_docs = siblings
+
+    reviewer_states = info.get("Reviewer requirement states")
+    if isinstance(reviewer_states, str):
+        try:
+            reviewer_states = json.loads(reviewer_states)
+        except (TypeError, ValueError):
+            reviewer_states = {}
+    assessment = assess_package_requirements(
+        iid,
+        [
+            type(
+                "_RowDoc",
+                (),
+                {
+                    "extracted_info": _document_info(d.get("extracted_info")),
+                    "extracted_text": d.get("extracted_text"),
+                    "requirement_index": d.get("requirement_index"),
+                    "deleted_at": d.get("deleted_at"),
+                    "public_id": d.get("public_id"),
+                },
+            )()
+            for d in package_docs
+        ],
+        fields_ok=fields_ok,
+        identity_ok=identity_ok,
+        reviewer_states=reviewer_states if isinstance(reviewer_states, dict) else {},
+    )
+    if assessment.get("requirements") and not assessment.get("completeValid"):
+        missing = assessment.get("missingLabels") or []
+        uncertain = assessment.get("uncertainLabels") or []
+        if missing:
+            blockers.append(
+                {
+                    "kind": "missing_evidence",
+                    "message": "Required supporting evidence is missing: "
+                    + "; ".join(missing[:4])
+                    + ("…" if len(missing) > 4 else ""),
+                }
+            )
+        if uncertain:
+            blockers.append(
+                {
+                    "kind": "missing_evidence",
+                    "message": "Supporting evidence needs verification: "
+                    + "; ".join(uncertain[:4])
+                    + ("…" if len(uncertain) > 4 else ""),
+                }
+            )
+
+    return blockers
+
+
 def sync_faculty_scores(conn, user_id):
     """Recalculate shared KRA totals and rank simulation with the mobile scoring rules."""
     from kra_config import config_from_payload
@@ -1272,9 +1453,10 @@ def sync_faculty_scores(conn, user_id):
     rank = profile["current_rank"] if profile and profile["current_rank"] else "Instructor I"
     rows = conn.execute(
         """
-        SELECT public_id, status, kra, points, reviewer_score, indicator_id
+        SELECT public_id, status, kra, points, reviewer_score, indicator_id, extracted_info,
+               simulation_points, title, file_name
         FROM documents
-        WHERE user_id = %s
+        WHERE user_id = %s AND deleted_at IS NULL
         """,
         (user_id,),
     ).fetchall()
@@ -1291,7 +1473,25 @@ def sync_faculty_scores(conn, user_id):
         doc.points = row["points"]
         doc.reviewer_score = row["reviewer_score"]
         doc.indicator_id = row["indicator_id"]
+        doc.extracted_info = row["extracted_info"]
+        doc.simulation_points = row.get("simulation_points") or 0
+        doc.title = row.get("title") or ""
+        doc.file_name = row.get("file_name") or ""
+        doc.deleted_at = None
         documents.append(doc)
+    from simulation_scoring import stamp_evaluation_period_metadata
+
+    stamp_evaluation_period_metadata(documents)
+    for doc in documents:
+        if not getattr(doc, "indicator_id", None):
+            continue
+        conn.execute(
+            """
+            UPDATE documents SET extracted_info = %s
+            WHERE public_id = %s AND indicator_id IN ('kra1-a-student', 'kra1-a-supervisor')
+            """,
+            (Json(doc.extracted_info), doc.public_id),
+        )
     summary = summarize_documents(documents, config, rank)
     for kra, target in summary["targets"].items():
         current = int(round(summary["totals"].get(kra, 0)))
@@ -1363,11 +1563,258 @@ def sync_faculty_scores(conn, user_id):
         )
 
 
+@app.post("/api/documents/<document_id>/reextract")
+def reextract_document(document_id):
+    """Re-run OCR and field extraction. Reviewer decisions and credited points are preserved."""
+    conn, user = require_user()
+    row = conn.execute("SELECT * FROM documents WHERE public_id = %s", (document_id,)).fetchone()
+    if not row:
+        conn.close()
+        return json_error("Document not found.", 404)
+    allowed = visible_faculty_ids(conn, user)
+    if allowed is not None and row["user_id"] not in allowed:
+        conn.close()
+        return json_error("This document is not assigned to you.", 403)
+    if user["role"] == "faculty":
+        conn.close()
+        return json_error("Faculty reprocessing uses the mobile application.", 403)
+    locked_status = row["status"] in ("validated", "approved", "system_approved")
+    if locked_status or row.get("reviewer_score") is not None or row.get("decided_at"):
+        conn.close()
+        return json_error(
+            "This document already has a reviewer decision, so extraction fields were not changed.",
+            409,
+        )
+    profile = profile_for(conn, row["user_id"])
+    uploader_name = profile["full_name"] if profile else None
+    from scoring import process_upload
+
+    kra_row = conn.execute(
+        "SELECT payload, version, status, published_at, formula, updated_at FROM kra_settings WHERE id = 1"
+    ).fetchone()
+    scoring_config = scoring_config_from_kra_row(kra_row)
+
+    existing = conn.execute(
+        """
+        SELECT public_id, status, title, file_hash, indicator_id
+        FROM documents
+        WHERE user_id = %s AND public_id != %s AND deleted_at IS NULL
+        """,
+        (row["user_id"], row["public_id"]),
+    ).fetchall()
+
+    class _Existing:
+        def __init__(self, rec):
+            self.public_id = rec["public_id"]
+            self.status = rec["status"]
+            self.title = rec["title"]
+            self.file_hash = rec.get("file_hash")
+            self.indicator_id = rec.get("indicator_id")
+
+    processed = process_upload(
+        title=row["title"],
+        author=row.get("author"),
+        file_path=row.get("file_path"),
+        declared_kra=row["kra"],
+        criterion_id=row.get("criterion_id"),
+        indicator_id=row.get("indicator_id"),
+        config=scoring_config,
+        existing_docs=[_Existing(rec) for rec in existing],
+        uploader_name=uploader_name,
+    )
+    points = 0 if row["status"] in ("pendingReview", "pending-review", "processing", "needsRevision", "rejected") else processed["points"]
+    conn.execute(
+        """
+        UPDATE documents
+        SET extracted_info = %s,
+            extracted_text = %s,
+            validation_result = %s,
+            indicator_id = COALESCE(%s, indicator_id),
+            flagged_for_review = %s,
+            points = %s,
+            status = %s
+        WHERE public_id = %s
+        """,
+        (
+            Json(processed["extracted_info"]),
+            processed["extracted_text"],
+            processed["validation_result"],
+            processed.get("indicator_id"),
+            processed["flagged_for_review"],
+            points,
+            processed["status"],
+            document_id,
+        ),
+    )
+    sync_faculty_scores(conn, row["user_id"])
+    conn.execute(
+        "INSERT INTO audit_logs (actor_email, action, detail, created_at) VALUES (%s, %s, %s, %s)",
+        (
+            user["email"],
+            "Re-extracted document",
+            f"Re-ran OCR and field extraction for document {document_id}.",
+            datetime.now().isoformat(sep=" ", timespec="seconds"),
+        ),
+    )
+    conn.commit()
+    updated = conn.execute("SELECT * FROM documents WHERE public_id = %s", (document_id,)).fetchone()
+    body = document_record(updated)
+    faculty = conn.execute(
+        "SELECT reviewer_user_id FROM faculty_profiles WHERE user_id = %s",
+        (updated["user_id"],),
+    ).fetchone()
+    if faculty and faculty["reviewer_user_id"]:
+        body["reviewerId"] = str(faculty["reviewer_user_id"])
+    conn.close()
+    return jsonify(body)
+
+
+@app.post("/api/documents/<document_id>/correct-metadata")
+def correct_document_metadata(document_id):
+    """Apply reviewer corrections to extracted metadata and recompute validation/score."""
+    conn, user = require_user()
+    if user["role"] not in {"reviewer", "admin"}:
+        conn.close()
+        return json_error("Only reviewers and administrators can correct extracted information.", 403)
+    row = conn.execute("SELECT * FROM documents WHERE public_id = %s", (document_id,)).fetchone()
+    if not row:
+        conn.close()
+        return json_error("Document not found.", 404)
+    allowed = visible_faculty_ids(conn, user)
+    if allowed is not None and row["user_id"] not in allowed:
+        conn.close()
+        return json_error("This document is not assigned to you.", 403)
+    block_reason = metadata_correction_block_reason(row)
+    if block_reason:
+        conn.close()
+        return json_error(block_reason, 409)
+    payload = request.get_json(silent=True) or {}
+    reason = str(payload.get("reason") or "").strip()
+    if len(reason) < 8:
+        conn.close()
+        return json_error("Enter a brief reason for the correction (at least 8 characters).", 400)
+    from reviewer_metadata import ALLOWED_OVERRIDE_KEYS
+
+    overrides = {}
+    for key in ALLOWED_OVERRIDE_KEYS:
+        if key in payload and payload[key] is not None:
+            value = str(payload[key]).strip()
+            if value:
+                overrides[key] = value
+    if not overrides and not payload.get("attestSupportingEvidence"):
+        conn.close()
+        return json_error("Provide at least one corrected field or attest supporting evidence.", 400)
+
+    from scoring import process_upload
+
+    kra_row = conn.execute(
+        "SELECT payload, version, status, published_at, formula, updated_at FROM kra_settings WHERE id = 1"
+    ).fetchone()
+    scoring_config = scoring_config_from_kra_row(kra_row)
+    profile = profile_for(conn, row["user_id"])
+    uploader_name = profile["full_name"] if profile else None
+    prior_info = _document_info(row.get("extracted_info"))
+    stored_text = (row.get("extracted_text") or "").strip()
+    if payload.get("attestSupportingEvidence") is True:
+        prior_info = dict(prior_info)
+        prior_info["Supporting evidence verified"] = "yes"
+
+    existing = conn.execute(
+        """
+        SELECT public_id, status, title, file_hash, indicator_id
+        FROM documents
+        WHERE user_id = %s AND public_id != %s AND deleted_at IS NULL
+        """,
+        (row["user_id"], row["public_id"]),
+    ).fetchall()
+
+    class _Existing:
+        def __init__(self, rec):
+            self.public_id = rec["public_id"]
+            self.status = rec["status"]
+            self.title = rec["title"]
+            self.file_hash = rec.get("file_hash")
+            self.indicator_id = rec.get("indicator_id")
+
+    try:
+        processed = process_upload(
+            title=row["title"],
+            author=row.get("author"),
+            file_path=row.get("file_path"),
+            declared_kra=row["kra"],
+            criterion_id=row.get("criterion_id"),
+            indicator_id=row.get("indicator_id"),
+            config=scoring_config,
+            existing_docs=[_Existing(rec) for rec in existing],
+            uploader_name=uploader_name,
+            stored_ocr_text=stored_text,
+            field_overrides=overrides or None,
+            prior_extracted_info=prior_info,
+            reviewer_correction={"reviewer_id": str(user["id"]), "reason": reason},
+            force_manual_review=True,
+        )
+    except Exception as exc:
+        conn.rollback()
+        conn.close()
+        app.logger.exception("correct_document_metadata failed for %s", document_id)
+        return json_error(f"Could not apply metadata correction: {exc}", 500)
+    extracted_info = dict(processed["extracted_info"])
+    if prior_info.get("Supporting evidence verified") == "yes":
+        extracted_info["Supporting evidence verified"] = "yes"
+    points = 0
+    simulation_points = int(processed.get("simulation_points") or 0)
+    conn.execute(
+        """
+        UPDATE documents
+        SET extracted_info = %s,
+            validation_result = %s,
+            indicator_id = COALESCE(%s, indicator_id),
+            flagged_for_review = %s,
+            points = %s,
+            simulation_points = %s,
+            status = %s
+        WHERE public_id = %s
+        """,
+        (
+            Json(extracted_info),
+            processed["validation_result"],
+            processed.get("indicator_id"),
+            processed["flagged_for_review"],
+            points,
+            simulation_points,
+            "pendingReview",
+            document_id,
+        ),
+    )
+    detail = f"Corrected metadata on {document_id}: {', '.join(sorted(overrides.keys())) or 'evidence attestation'}. {reason}"
+    conn.execute(
+        "INSERT INTO audit_logs (actor_email, action, detail, created_at) VALUES (%s, %s, %s, %s)",
+        (
+            user["email"],
+            "Corrected extracted information",
+            detail[:500],
+            datetime.now().isoformat(sep=" ", timespec="seconds"),
+        ),
+    )
+    sync_faculty_scores(conn, row["user_id"])
+    conn.commit()
+    updated = conn.execute("SELECT * FROM documents WHERE public_id = %s", (document_id,)).fetchone()
+    body = document_record(updated)
+    faculty = conn.execute(
+        "SELECT reviewer_user_id FROM faculty_profiles WHERE user_id = %s",
+        (updated["user_id"],),
+    ).fetchone()
+    if faculty and faculty["reviewer_user_id"]:
+        body["reviewerId"] = str(faculty["reviewer_user_id"])
+    conn.close()
+    return jsonify(body)
+
+
 @app.put("/api/documents/<document_id>")
 def update_document(document_id):
     conn, user = require_user()
     row = conn.execute("SELECT * FROM documents WHERE public_id = %s", (document_id,)).fetchone()
-    if not row:
+    if not row or row.get("deleted_at"):
         conn.close()
         return json_error("Document not found.", 404)
     allowed = visible_faculty_ids(conn, user)
@@ -1397,6 +1844,14 @@ def update_document(document_id):
     if status == "validated":
         if str(feedback or "").strip() == "" and str(remarks or "").strip() == "":
             feedback = feedback or ""
+        profile = profile_for(conn, row["user_id"])
+        uploader_name = profile["full_name"] if profile else None
+        blockers = document_approval_blockers(
+            row, indicator_id, uploader_name=uploader_name, conn=conn
+        )
+        if blockers:
+            conn.close()
+            return json_error(" ".join(item["message"] for item in blockers[:6]), 400)
         snapshot, message = awarded_review(incoming, read_kra_settings(conn))
         if message:
             conn.close()
@@ -1417,8 +1872,9 @@ def update_document(document_id):
         reviewer_score = snapshot["finalScore"]
         decided_at = snapshot["capturedAt"]
         credited_points = int(round(float(reviewer_score)))
-        extracted_info["Verified score"] = str(reviewer_score)
-        extracted_info["Verification tier"] = "Reviewer verified"
+        from simulation_scoring import mark_reviewer_adjusted
+
+        extracted_info = mark_reviewer_adjusted(extracted_info, float(reviewer_score))
     elif status in ("rejected", "needsRevision"):
         if not str(feedback or "").strip():
             conn.close()
@@ -1426,14 +1882,21 @@ def update_document(document_id):
         decided_at = datetime.now().isoformat(sep=" ", timespec="seconds")
         credited_points = 0
         reviewer_score = None
+        from simulation_scoring import mark_simulation_removed
+
+        reason = "Rejected by reviewer" if status == "rejected" else "Revision requested"
+        extracted_info = mark_simulation_removed(extracted_info, reason=reason)
     elif status in ("pendingReview", "processing"):
         credited_points = 0
+    simulation_points = int(round(float(reviewer_score))) if reviewer_score is not None else 0
+    if status in ("rejected", "needsRevision"):
+        simulation_points = 0
     conn.execute(
         """
         UPDATE documents
         SET status = %s, reviewer_feedback = %s, reviewer_remarks = %s, flagged_for_review = %s,
             indicator_id = %s, reviewer_score = %s, review_snapshot = %s, decided_at = %s,
-            points = %s, extracted_info = %s
+            points = %s, simulation_points = %s, extracted_info = %s
         WHERE public_id = %s
         """,
         (
@@ -1446,6 +1909,7 @@ def update_document(document_id):
             snapshot_raw,
             decided_at,
             credited_points,
+            simulation_points,
             Json(extracted_info),
             document_id,
         ),

@@ -158,6 +158,15 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
             title: const Text('My Documents'),
             actions: [
               IconButton(
+                tooltip: 'Refresh',
+                onPressed: AppState.instance.usingApi
+                    ? () => AppState.instance.refreshFromApi(
+                          label: 'Refreshing documents...',
+                        )
+                    : null,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+              IconButton(
                 tooltip: 'Filter',
                 onPressed: _openFilters,
                 icon: Badge(
@@ -178,8 +187,13 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
           ),
           body: _loading
               ? const LoadingState(message: 'Loading your documents…')
-              : CustomScrollView(
-                  slivers: [
+              : RefreshIndicator(
+                  onRefresh: () => AppState.instance.refreshFromApi(
+                    label: 'Refreshing documents...',
+                  ),
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
                     const SliverPadding(
                       padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
                       sliver: SliverToBoxAdapter(
@@ -317,6 +331,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                       ),
                   ],
                 ),
+              ),
         );
       },
     );

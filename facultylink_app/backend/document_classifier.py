@@ -176,6 +176,22 @@ def _authorship_pair_adjustment(
     return adjusted
 
 
+def _set_sef_exclusive_indicator(haystack: str) -> str | None:
+    """Prefer SET vs SEF when criterion A text clearly matches one evaluation type."""
+    text = (haystack or "").lower()
+    set_hits = sum(1 for phrase in INDICATOR_KEYWORDS.get("kra1-a-student", ()) if phrase in text)
+    sef_hits = sum(1 for phrase in INDICATOR_KEYWORDS.get("kra1-a-supervisor", ()) if phrase in text)
+    if set_hits >= 1 and set_hits > sef_hits:
+        return "kra1-a-student"
+    if sef_hits >= 1 and sef_hits > set_hits:
+        return "kra1-a-supervisor"
+    if "student evaluation" in text and "supervisor" not in text:
+        return "kra1-a-student"
+    if "supervisor evaluation" in text or "supervisor's evaluation" in text:
+        return "kra1-a-supervisor"
+    return None
+
+
 def classify_within_criterion(
     criterion_id: str | None,
     *,
@@ -207,6 +223,20 @@ def classify_within_criterion(
             ranked.append((score, indicator, hits))
     ranked.sort(key=lambda item: item[0], reverse=True)
     ranked = _authorship_pair_adjustment(ranked, authors_count)
+    set_sef_exclusive = (
+        _set_sef_exclusive_indicator(haystack)
+        if (found["criterion"].get("id") or "") == "kra1-a"
+        else None
+    )
+    if set_sef_exclusive:
+        boosted: list[tuple[int, dict, list[str]]] = []
+        for score, indicator, hits in ranked:
+            if (indicator.get("id") or "") == set_sef_exclusive:
+                boosted.append((score + 12, indicator, hits))
+            else:
+                boosted.append((score, indicator, hits))
+        boosted.sort(key=lambda item: item[0], reverse=True)
+        ranked = boosted
 
     candidates = [
         {
@@ -233,6 +263,16 @@ def classify_within_criterion(
         and (second_score == 0 or best_score >= second_score * 1.6)
         and bool(ocr_text.strip())
     )
+    exclusive_classification = False
+    if (
+        not reliable
+        and set_sef_exclusive
+        and (best.get("id") or "") == set_sef_exclusive
+        and bool(ocr_text.strip())
+        and best_score >= 3
+    ):
+        reliable = True
+        exclusive_classification = True
 
     if not ocr_text.strip():
         reasons.append("OCR did not extract readable text, so indicator classification is not reliable.")
@@ -240,15 +280,22 @@ def classify_within_criterion(
     elif best_score < 3:
         reasons.append("Indicator keyword evidence is too weak for automatic classification.")
         reliable = False
-    elif margin < 2 or (second_score > 0 and best_score < second_score * 1.6):
+    elif not exclusive_classification and (
+        margin < 2 or (second_score > 0 and best_score < second_score * 1.6)
+    ):
         reasons.append("More than one indicator within the criterion matched; classification is ambiguous.")
         reliable = False
 
     if reliable:
-        reasons.append(
-            f"Classified as {best.get('name')} using OCR text and DBM–CHED indicator rules "
-            f"(matched: {', '.join(best_hits[:6])})."
-        )
+        if exclusive_classification:
+            reasons.append(
+                f"Classified as {best.get('name')} using SET/SEF-specific document signals."
+            )
+        else:
+            reasons.append(
+                f"Classified as {best.get('name')} using OCR text and DBM–CHED indicator rules "
+                f"(matched: {', '.join(best_hits[:6])})."
+            )
     else:
         reasons.append(
             f"Best match is {best.get('name')}, but automatic approval requires a clearer indicator match."

@@ -187,6 +187,8 @@ class ApiClient {
     String? criterionId,
     String? indicatorId,
     double? contributionPercent,
+    String? packageId,
+    int? requirementIndex,
     List<int>? fileBytes,
   }) async {
     final request = http.MultipartRequest('POST', _uri('/api/documents'))
@@ -199,6 +201,8 @@ class ApiClient {
         if (criterionId != null && criterionId.isNotEmpty) 'criterionId': criterionId,
         if (indicatorId != null && indicatorId.isNotEmpty) 'indicatorId': indicatorId,
         if (contributionPercent != null) 'contributionPercent': contributionPercent.toString(),
+        if (packageId != null && packageId.isNotEmpty) 'packageId': packageId,
+        if (requirementIndex != null) 'requirementIndex': requirementIndex.toString(),
       });
 
     if (fileBytes != null) {
@@ -216,6 +220,41 @@ class ApiClient {
   Future<Map<String, dynamic>> kraCatalog() async {
     final data = await getJson('/api/kra-catalog');
     return data is Map<String, dynamic> ? data : {'kras': []};
+  }
+
+  Future<void> deleteDocument(String publicId) async {
+    await sendJson('DELETE', '/api/documents/$publicId');
+  }
+
+  Future<Map<String, dynamic>> replaceDocument({
+    required String publicId,
+    required String fileName,
+    required List<int> fileBytes,
+    String? title,
+  }) async {
+    final request = http.MultipartRequest('POST', _uri('/api/documents/$publicId/replace'))
+      ..headers.addAll(_headers)
+      ..fields.addAll({
+        'fileName': fileName,
+        if (title != null && title.isNotEmpty) 'title': title,
+      })
+      ..files.add(http.MultipartFile.fromBytes('file', fileBytes, filename: fileName));
+    final streamed = await _http.send(request).timeout(
+      const Duration(seconds: 90),
+      onTimeout: () => throw TimeoutException('Replace upload timed out.'),
+    );
+    final response = await http.Response.fromStream(streamed);
+    return _decode(response) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> requestDocumentWithdrawal({
+    required String publicId,
+    String? reason,
+  }) async {
+    final data = await sendJson('POST', '/api/documents/$publicId/withdraw', {
+      if (reason != null && reason.isNotEmpty) 'reason': reason,
+    });
+    return data is Map<String, dynamic> ? data : {'ok': true};
   }
 
   Future<List<int>> downloadDocumentBytes(String publicId) async {

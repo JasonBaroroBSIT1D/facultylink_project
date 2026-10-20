@@ -13,8 +13,9 @@ List<String> apiBaseUrlCandidates() {
   final urls = <String>{
     if (kIsWeb) 'http://127.0.0.1:5000',
     if (defaultTargetPlatform == TargetPlatform.android) ...[
-      'http://$lanApiHost:5000',
+      // USB + `adb reverse tcp:5000 tcp:5000` — try localhost first (fastest while developing).
       'http://127.0.0.1:5000',
+      'http://$lanApiHost:5000',
       'http://10.0.2.2:5000',
     ],
     if (defaultTargetPlatform == TargetPlatform.iOS) 'http://$lanApiHost:5000',

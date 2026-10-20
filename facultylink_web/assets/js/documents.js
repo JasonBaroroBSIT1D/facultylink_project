@@ -13,13 +13,70 @@ FL.documents = {
   },
 
   needsAction: function (doc) {
-    return doc.status === "pending-review" || doc.status === "reviewer-required" || doc.status === "invalid";
+    if (doc.status === "invalid" || doc.status === "revision" || doc.status === "reviewer-required") return true;
+    if (doc.status === "pending-review" || doc.status === "system-approved") return true;
+    const oversight = doc.reviewerOversightStatus || (doc.extractedInfo && doc.extractedInfo["Reviewer oversight status"]) || "";
+    if (oversight === "Awaiting Reviewer Check" || oversight === "Requires Review") return true;
+    return false;
+  },
+
+  processingStatusLabel: function (doc) {
+    const info = doc.extractedInfo || {};
+    return info["Processing branch"] || info["Scoring status"] || doc.scoringStatus || "";
   },
 
   provisionalScore: function (doc) {
     const raw = doc.extractedInfo && doc.extractedInfo["Provisional score"];
     const value = Number(raw);
     return Number.isFinite(value) ? value : null;
+  },
+
+  isSetSefSemesterDocument: function (doc) {
+    return doc.indicatorId === "kra1-a-student" || doc.indicatorId === "kra1-a-supervisor";
+  },
+
+  periodSimulationDisplay: function (doc) {
+    if (typeof doc.periodSimulationScore === "number") {
+      return {
+        score: doc.periodSimulationScore,
+        filled: doc.evaluationPeriodFilled || (doc.extractedInfo && doc.extractedInfo["Evaluation period filled"]) || ""
+      };
+    }
+    const info = doc.extractedInfo || {};
+    const raw = info["SET period simulation score"] || info["SEF period simulation score"];
+    const filled = info["Evaluation period filled"] || doc.evaluationPeriodFilled || "";
+    if (raw && String(raw).trim()) {
+      const score = Number(raw);
+      if (Number.isFinite(score)) return { score: score, filled: filled };
+    }
+    if ((doc.indicatorId === "kra1-a-student" || doc.indicatorId === "kra1-a-supervisor") && filled) {
+      return { score: null, filled: filled };
+    }
+    return null;
+  },
+
+  effectiveSimulationScore: function (doc) {
+    if (typeof doc.effectiveSimulationScore === "number") return doc.effectiveSimulationScore;
+    const info = doc.extractedInfo || {};
+    if (info["Scoring status"] === "Score unavailable") return null;
+    if (doc.status === "rejected" || doc.status === "invalid" || doc.status === "revision") return null;
+    if (doc.status === "approved" && doc.review && typeof doc.review.finalScore === "number") {
+      return doc.review.finalScore;
+    }
+    if (typeof doc.reviewerScore === "number") return doc.reviewerScore;
+    if (info["Simulation eligible"] === "yes") {
+      const system = Number(info["System-calculated score"] || info["Provisional score"]);
+      return Number.isFinite(system) ? system : null;
+    }
+    return null;
+  },
+
+  simulationScoreSource: function (doc) {
+    return doc.simulationScoreSource || (doc.extractedInfo && doc.extractedInfo["Simulation score source"]) || "Unavailable";
+  },
+
+  oversightStatusLabel: function (doc) {
+    return doc.reviewerOversightStatus || (doc.extractedInfo && doc.extractedInfo["Reviewer oversight status"]) || "";
   },
 
   creditedPoints: function (doc) {
@@ -30,6 +87,58 @@ FL.documents = {
       return doc.databasePoints;
     }
     return 0;
+  },
+
+  reviewJumpItems: function () {
+    return [
+      { href: "#document-area", label: "Document" },
+      { href: "#ocr-area", label: "Extracted" },
+      { href: "#classification", label: "Classification" },
+      { href: "#rule", label: "DBM–CHED" },
+      { href: "#validation", label: "Validation" },
+      { href: "#scoring", label: "Scoring" },
+      { href: "#contribution", label: "Contribution" },
+      { href: "#workflow", label: "Workflow" },
+      { href: "#decision", label: "Decision" }
+    ];
+  },
+
+  kvRow: function (label, valueHtml, missing) {
+    return `<div class="kv-row"><div class="kv-label">${FL.esc(label)}</div><div class="kv-value${missing ? " is-missing" : ""}">${valueHtml}</div></div>`;
+  },
+
+  identityDisplayHtml: function (doc, identityValue, identityStatus) {
+    if (!identityValue) {
+      return FL.ui.badge("invalid", "Not extracted");
+    }
+    const lower = String(identityStatus || "").toLowerCase();
+    if (lower.indexOf("matched") >= 0 && lower.indexOf("does not") < 0) {
+      return `${FL.esc(String(identityValue))} ${FL.ui.badge("valid", "Verified")}`;
+    }
+    if (lower.indexOf("does not match") >= 0 || lower.indexOf("invalid") >= 0) {
+      return `${FL.esc(String(identityValue))} ${FL.ui.badge("invalid", "Mismatch")}`;
+    }
+    if (identityStatus) {
+      return `${FL.esc(String(identityValue))} <span class="note">${FL.esc(String(identityStatus))}</span>`;
+    }
+    return FL.esc(String(identityValue));
+  },
+
+  ocrScoringSnapshotKeys: function (doc) {
+    const found = doc.indicatorId ? FL.rules.findIndicator(doc.indicatorId) : null;
+    const rating = found && found.indicator.formula && found.indicator.formula.type === "rating";
+    const keys = [
+      "Assigned KRA",
+      "Criterion",
+      "Automatically identified indicator",
+      "Classification confidence",
+      "Extracted rating",
+      "Provisional score",
+      "Base points",
+      "Document type"
+    ];
+    if (!rating) keys.push("Contribution percent");
+    return keys;
   },
 
   kraLabel: function (doc) {
@@ -111,11 +220,18 @@ FL.documents = {
               const reviewer = FL.store.userById(doc.reviewerId);
               const scored = FL.scoring.scoreDocument(doc);
               const ocr = doc.ocr && doc.ocr.status === "completed" ? "Completed" : doc.ocr && doc.ocr.status === "processing" ? "Processing" : "Pending";
-              const credited = FL.documents.creditedPoints(doc);
-              const provisional = FL.documents.provisionalScore(doc);
+              const effective = FL.documents.effectiveSimulationScore(doc);
+              const period = FL.documents.periodSimulationDisplay(doc);
+              const source = FL.documents.simulationScoreSource(doc);
               const scoreCell = doc.status === "ignored-duplicate"
                 ? "—"
-                : `<div>Credited ${FL.esc(String(credited))}</div>${provisional == null ? "" : `<div class="sub">Provisional ${FL.esc(String(provisional))}</div>`}`;
+                : period && period.score != null
+                  ? `<div>SET period ${FL.esc(String(period.score))}</div><div class="sub">${FL.esc(period.filled || "6/6")} semesters · rank simulation</div>`
+                  : period && period.filled
+                    ? `<div class="sub">Period ${FL.esc(period.filled)}</div><div class="sub">Complete all semesters for SET simulation</div>`
+                    : effective == null
+                      ? `<span class="sub">Score unavailable</span>`
+                      : `<div>Simulation ${FL.esc(String(effective))}</div><div class="sub">${FL.esc(source)}</div>`;
               return `<tr>
                 <td>${FL.esc(doc.id)}</td>
                 <td>${FL.esc(faculty ? faculty.name : "—")}</td>
@@ -158,58 +274,68 @@ FL.documents = {
     const scored = FL.scoring.scoreDocument(doc);
     const validation = scored.validation;
     const back = canDecide ? "review-queue.html" : "documents.html";
+    const backLabel = canDecide ? "Back to queue" : "Back to documents";
+    const toolbar = doc.fileUrl
+      ? `<div class="doc-toolbar">
+          <button class="btn btn-small btn-primary" type="button" id="open-doc">Open in new tab</button>
+          <a class="btn btn-small btn-ghost" href="${FL.esc(doc.fileUrl)}" download="${FL.esc(doc.fileName || "document")}">Download</a>
+        </div>`
+      : "";
+    const jumpLinks = FL.documents.reviewJumpItems().map(function (item, index) {
+      return `<a href="${item.href}" class="${index === 0 ? "is-active" : ""}">${FL.esc(item.label)}</a>`;
+    }).join("");
     const page = document.getElementById("page");
     page.innerHTML = `
-      <div class="page-head">
-        <div>
-          <p class="eyebrow">Document review</p>
-          <h1>${FL.esc(doc.name)}</h1>
-          <p class="lede">${FL.esc(doc.id)} · ${FL.esc(faculty ? faculty.name : "")}</p>
+      <div class="review-page">
+      <header class="review-header card">
+        <div class="review-header-main">
+          <div class="review-header-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M14 3v5h5M9 13h6M9 17h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <p class="eyebrow">Document review</p>
+            <h1 class="review-title">${FL.esc(doc.name)}</h1>
+            <p class="review-meta">${FL.esc(doc.id)} · ${FL.esc(faculty ? faculty.name : "Faculty")}${reviewer ? " · Reviewer " + FL.esc(reviewer.name) : ""}</p>
+          </div>
         </div>
-        <div class="head-actions">
+        <div class="review-header-actions">
           ${FL.ui.statusBadge(doc.status)}
-          <a class="btn btn-ghost" href="${back}">Back</a>
+          <a class="btn btn-ghost" href="${back}">${FL.esc(backLabel)}</a>
         </div>
-      </div>
-      <nav class="jump" aria-label="Review sequence">
-        <a href="#document-area">Document</a>
-        <a href="#ocr-area">OCR</a>
-        <a href="#classification">Classification</a>
-        <a href="#rule">DBM–CHED rule</a>
-        <a href="#validation">Validation</a>
-        <a href="#scoring">Scoring</a>
-        <a href="#contribution">Contribution</a>
-        <a href="#workflow">Workflow</a>
-        <a href="#decision">Decision</a>
-      </nav>
+      </header>
+      <nav class="jump jump--review" aria-label="Review sections">${jumpLinks}</nav>
       <div class="review-grid">
-        <section class="card document-stage" id="document-area">
-          <div class="card-head">
+        <section class="card review-section document-stage" id="document-area">
+          <div class="card-head card-head--toolbar">
             <div>
               <h2>Original document</h2>
-              <p class="sub">${FL.esc(doc.fileName)} · ${FL.esc(doc.fileType || "File")} · ${FL.esc(FL.formatWhen(doc.dateSubmitted))}${reviewer ? " · " + FL.esc(reviewer.name) : ""}</p>
+              <p class="sub">${FL.esc(doc.fileName)} · ${FL.esc(doc.fileType || "File")} · ${FL.esc(FL.formatWhen(doc.dateSubmitted))}</p>
             </div>
-            <button class="btn btn-small btn-primary" type="button" id="open-doc">Open in new tab</button>
+            ${toolbar}
           </div>
           <div class="preview preview-clean" id="preview">
             ${FL.documents.originalFileHtml(doc)}
           </div>
         </section>
-        <section class="card" id="ocr-area">
+        <section class="card review-section" id="ocr-area">
           <div class="card-head"><h2>Extracted summary</h2>${FL.ui.statusBadge(doc.ocr.status === "completed" ? "completed" : doc.ocr.status === "processing" ? "processing" : "pending")}</div>
-          <p class="note">Key fields pulled from the upload for classification. Use the original document on the left for the full layout.</p>
-          ${FL.documents.ocrHtml(doc)}
+          <p class="note">Structured fields from OCR and classification. Compare with the original document on the left.</p>
+          ${FL.documents.ocrHtml(doc, scored)}
         </section>
       </div>
       ${FL.documents.workflowHtml(doc, scored)}
-      <div class="split">
-        <section class="card" id="classification">${FL.documents.classificationHtml(doc, validation)}</section>
-        <section class="card" id="rule">${FL.documents.ruleHtml(scored, canDecide, doc)}</section>
+      <div class="split review-stack">
+        <section class="card review-section" id="classification">${FL.documents.classificationHtml(doc, validation)}</section>
+        <section class="card review-section" id="rule">${FL.documents.ruleHtml(scored, canDecide, doc)}</section>
       </div>
-      <section class="card" id="validation">${FL.documents.validationHtml(doc, validation)}</section>
-      <section class="card" id="scoring">${FL.documents.scoreHtml(scored, doc, canDecide)}</section>
-      <section class="card" id="contribution">${FL.documents.contributionHtml(scored, doc)}</section>
-      <section class="card" id="decision">${FL.documents.decisionHtml(doc, canDecide)}</section>`;
+      <section class="card review-section" id="validation">${FL.documents.validationHtml(doc, validation, canDecide)}</section>
+      <section class="card review-section" id="scoring">${FL.documents.scoreHtml(scored, doc, canDecide)}</section>
+      <section class="card review-section" id="contribution">${FL.documents.contributionHtml(scored, doc)}</section>
+      <section class="card review-section review-decision" id="decision">${FL.documents.decisionHtml(doc, canDecide)}</section>
+      </div>`;
     FL.documents.bindJumpNav();
     FL.documents.bindZoom();
     const openOriginal = function (event) {
@@ -242,33 +368,22 @@ FL.documents = {
       });
     }
     if (canDecide) {
-      const assignedScore = document.getElementById("assigned-score");
       const decisionScore = document.getElementById("decision-score");
       const refreshPreview = function (value) {
         const preview = FL.documents.scorePreview(doc, Number(value));
-        const pairs = [
-          ["score-preview-percent", "decision-preview-percent", preview.percent == null ? "—" : preview.percent + "%"],
-          ["score-preview-final", "decision-preview-final", preview.finalScore == null ? "—" : String(preview.finalScore)]
-        ];
-        pairs.forEach(function (pair) {
-          const a = document.getElementById(pair[0]);
-          const b = document.getElementById(pair[1]);
-          if (a) a.textContent = pair[2];
-          if (b) b.textContent = pair[2];
-        });
+        const percentEl = document.getElementById("decision-preview-percent");
+        const finalEl = document.getElementById("decision-preview-final");
+        if (percentEl) percentEl.textContent = preview.percent == null ? "—" : preview.percent + "%";
+        if (finalEl) finalEl.textContent = preview.finalScore == null ? "—" : String(preview.finalScore);
       };
-      const syncScore = function (source, target) {
-        if (!source) return;
-        source.addEventListener("input", function () {
-          if (target) target.value = source.value;
-          refreshPreview(source.value);
+      if (decisionScore) {
+        decisionScore.addEventListener("input", function () {
+          refreshPreview(decisionScore.value);
         });
-      };
-      syncScore(assignedScore, decisionScore);
-      syncScore(decisionScore, assignedScore);
-      if (decisionScore) refreshPreview(decisionScore.value);
-      else if (assignedScore) refreshPreview(assignedScore.value);
+        refreshPreview(decisionScore.value);
+      }
       FL.documents.bindDecision(session, doc);
+      FL.documents.bindExtractionCorrection(session, doc, canDecide);
     }
   },
 
@@ -302,9 +417,12 @@ FL.documents = {
   },
 
   bindJumpNav: function () {
-    document.querySelectorAll(".jump a[href^='#']").forEach(function (link) {
+    const links = document.querySelectorAll(".jump a[href^='#']");
+    links.forEach(function (link) {
       link.addEventListener("click", function (event) {
         event.preventDefault();
+        links.forEach(function (item) { item.classList.remove("is-active"); });
+        link.classList.add("is-active");
         const id = link.getAttribute("href").slice(1);
         const target = document.getElementById(id);
         if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -321,48 +439,70 @@ FL.documents = {
     const inlineUrl = FL.esc(FL.documents.inlineFileUrl(doc));
     const isImage = mime.indexOf("image/") === 0 || /\.(png|jpe?g|gif|webp|bmp|tif|tiff)$/.test(lower);
     const isPdf = mime.indexOf("pdf") >= 0 || /\.pdf$/.test(lower);
-    const downloadBtn = `<a class="btn btn-small btn-ghost" href="${FL.esc(doc.fileUrl)}" download="${FL.esc(doc.fileName || "document")}">Download file</a>`;
     if (isImage) {
       const zoomTools = `<span class="zoom-tools" role="group" aria-label="Zoom document"><button class="btn btn-small btn-ghost" type="button" data-zoom="out" aria-label="Zoom out">−</button><span class="zoom-level" aria-live="polite">100%</span><button class="btn btn-small btn-ghost" type="button" data-zoom="in" aria-label="Zoom in">+</button><button class="btn btn-small btn-ghost" type="button" data-zoom="fit">Fit</button></span>`;
-      return `<div class="original-file"><div class="original-file-actions">${downloadBtn}${zoomTools}</div><div class="original-file-frame original-file-frame--doc original-file-frame--zoom"><img src="${inlineUrl}" alt="${FL.esc(doc.fileName || "Uploaded document")}"></div></div>`;
+      return `<div class="original-file"><div class="original-file-actions">${zoomTools}</div><div class="original-file-frame original-file-frame--doc original-file-frame--zoom"><img src="${inlineUrl}" alt="${FL.esc(doc.fileName || "Uploaded document")}"></div></div>`;
     }
     if (isPdf) {
       const src = inlineUrl + "#toolbar=0&navpanes=0&scrollbar=1&view=FitH";
-      return `<div class="original-file"><div class="original-file-actions">${downloadBtn}</div><div class="original-file-frame original-file-frame--doc"><iframe title="Original PDF preview" src="${src}"></iframe></div></div>`;
+      return `<div class="original-file original-file--pdf"><div class="original-file-frame original-file-frame--doc original-file-frame--pdf"><iframe title="Original PDF preview" src="${src}"></iframe></div></div>`;
     }
     const excerpt = (doc.extractedInfo && (doc.extractedInfo["OCR excerpt"] || doc.extractedInfo.OCR)) || (doc.ocr && doc.ocr.content) || "";
-    return `<div class="original-file"><div class="original-file-actions"><button class="btn btn-small btn-ghost" type="button" id="open-doc-secondary">Open in new tab</button>${downloadBtn}</div><div class="original-file-placeholder"><p class="note">Inline preview is not available for this file type. Use the extracted summary or open the original file.</p>${excerpt ? `<div class="ocr-content">${FL.esc(String(excerpt).slice(0, 1200))}</div>` : ""}</div></div>`;
+    return `<div class="original-file"><div class="original-file-placeholder"><p class="note">Inline preview is not available for this file type. Use Open in new tab or Download from the toolbar above.</p>${excerpt ? `<div class="ocr-content">${FL.esc(String(excerpt).slice(0, 1200))}</div>` : ""}</div></div>`;
   },
 
-  ocrHtml: function (doc) {
+  ocrHtml: function (doc, scored) {
     if (!doc.ocr || doc.ocr.status === "processing" || doc.ocr.status === "pending") {
       return FL.ui.loading(doc.ocr && doc.ocr.status === "processing" ? "OCR-result loading" : "Waiting for OCR", "Extracted title, authors, date, and content will appear here.");
     }
     const info = doc.extractedInfo && typeof doc.extractedInfo === "object" ? doc.extractedInfo : {};
-    const skip = {
-      "OCR excerpt": true,
-      OCR: true,
-      Note: true
-    };
-    const fieldRows = Object.keys(info).filter(function (key) {
-      return !skip[key] && String(info[key] || "").trim();
-    }).map(function (key) {
-      return `<div><dt>${FL.esc(key)}</dt><dd>${FL.esc(String(info[key]))}</dd></div>`;
-    }).join("");
     const excerpt = ((doc.ocr && doc.ocr.content) || info["OCR excerpt"] || info.OCR || "").trim();
-    const identityLabel = info["Identity field label"] || "Named party";
+    const identityLabel = info["Identity field label"] || "Faculty / named party";
     const identityValue = info["Extracted names"] || info["Extracted author(s)"] || (doc.ocr.authors && doc.ocr.authors.join(", ")) || "";
     const identityStatus = info["Identity verification"] || "";
+    const titleValue = info["Extracted title"] || doc.ocr.title || "";
+    const periodValue = info["Extracted date"] || info["Academic year"] || doc.ocr.date || "";
+    const provisional = FL.documents.provisionalScore(doc);
+    const credited = FL.documents.creditedPoints(doc);
+    const officialMax = scored && scored.indicator ? (scored.historical ? scored.officialMax : scored.indicator.maxPoints) : null;
+    const snapshotKeys = FL.documents.ocrScoringSnapshotKeys(doc);
+    const used = {};
+    snapshotKeys.forEach(function (key) { used[key] = true; });
+    const metaRows = Object.keys(info).filter(function (key) {
+      return !used[key] && key.indexOf("OCR original") !== 0 && key !== "Submission history" && String(info[key] || "").trim();
+    }).slice(0, 12).map(function (key) {
+      return FL.documents.kvRow(key, FL.esc(String(info[key])), false);
+    }).join("");
+    const snapshotRows = snapshotKeys.filter(function (key) {
+      return String(info[key] || "").trim();
+    }).map(function (key) {
+      return FL.documents.kvRow(key, FL.esc(String(info[key])), false);
+    }).join("");
     return `
-      <dl class="facts compact ocr-facts">
-        <div><dt>Title</dt><dd>${doc.ocr.title ? FL.esc(doc.ocr.title) : FL.ui.badge("invalid", "Missing")}</dd></div>
-        <div><dt>${FL.esc(identityLabel)}</dt><dd>${identityValue ? FL.esc(String(identityValue)) : FL.ui.badge("invalid", "Not extracted")}</dd></div>
-        <div><dt>Date / period</dt><dd>${info["Extracted date"] || doc.ocr.date ? FL.esc(String(info["Extracted date"] || doc.ocr.date)) : "—"}</dd></div>
-        ${identityStatus ? `<div><dt>Identity check</dt><dd>${FL.esc(String(identityStatus))}</dd></div>` : ""}
-      </dl>
-      ${fieldRows ? `<h3 class="block-label">Scoring snapshot</h3><dl class="facts compact ocr-facts">${fieldRows}</dl>` : ""}
-      <h3 class="block-label">Text excerpt</h3>
-      <div class="ocr-content">${excerpt ? FL.esc(excerpt) : "No readable text was extracted from this file."}</div>`;
+      <div class="kv-grid kv-grid--two">
+        ${FL.documents.kvRow("Document title", titleValue ? FL.esc(titleValue) : FL.ui.badge("invalid", "Missing"), !titleValue)}
+        ${FL.documents.kvRow(identityLabel, FL.documents.identityDisplayHtml(doc, identityValue, identityStatus), !identityValue)}
+        ${FL.documents.kvRow("Academic year / period", periodValue ? FL.esc(String(periodValue)) : "—", !periodValue)}
+        ${identityStatus ? FL.documents.kvRow("Identity verification", FL.esc(String(identityStatus)), false) : ""}
+      </div>
+      <div class="score-mini-row">
+        <div class="score-mini">
+          <div class="score-mini-label">Provisional score</div>
+          <div class="score-mini-value is-provisional">${provisional == null ? "—" : FL.esc(String(provisional))}</div>
+        </div>
+        <div class="score-mini">
+          <div class="score-mini-label">Official maximum</div>
+          <div class="score-mini-value">${officialMax == null ? "—" : FL.esc(String(officialMax))}</div>
+        </div>
+        <div class="score-mini">
+          <div class="score-mini-label">Credited points</div>
+          <div class="score-mini-value is-credited">${FL.esc(String(credited))}</div>
+        </div>
+      </div>
+      ${snapshotRows ? `<h3 class="review-subhead">Scoring snapshot</h3><div class="kv-grid">${snapshotRows}</div>` : ""}
+      ${metaRows ? `<h3 class="review-subhead">Other extracted metadata</h3><div class="kv-grid">${metaRows}</div>` : ""}
+      <h3 class="review-subhead">Text excerpt</h3>
+      <div class="review-excerpt">${excerpt ? FL.esc(excerpt) : "No readable text was extracted from this file."}</div>`;
   },
 
   classificationHtml: function (doc, validation) {
@@ -453,23 +593,178 @@ FL.documents = {
     return "Contribution allocation is not used for this indicator.";
   },
 
-  validationHtml: function (doc, validation) {
+  usesContributorPercent: function (indicator) {
+    return !!(indicator && indicator.contribution === "declared");
+  },
+
+  indicatorFormulaText: function (indicator) {
+    if (!indicator) return FL.scoring.formula;
+    if (indicator.pointsLabel) return indicator.pointsLabel;
+    if (indicator.formula && indicator.formula.type === "rating") {
+      return "Points = (evaluation rating ÷ 100) × " + indicator.formula.multiplier + ". No authorship contribution percentage applies.";
+    }
+    if (FL.documents.usesContributorPercent(indicator)) return FL.scoring.formula;
+    return FL.documents.contributionNote(indicator);
+  },
+
+  defaultAssignedScore: function (doc) {
+    if (doc.review && typeof doc.review.assignedScore === "number") return doc.review.assignedScore;
+    if (FL.documents.isSetSefSemesterDocument(doc)) return 0;
+    const provisional = FL.documents.provisionalScore(doc);
+    return provisional == null ? "" : provisional;
+  },
+
+  decisionScorePreviewHtml: function (doc, preview, officialMax) {
+    const found = doc.indicatorId ? FL.rules.findIndicator(doc.indicatorId) : null;
+    const showContribution = found && FL.documents.usesContributorPercent(found.indicator);
+    const contributionBlock = showContribution
+      ? `<div><span>Contribution</span><strong id="decision-preview-percent">${preview.percent == null ? "—" : FL.esc(String(preview.percent)) + "%"}</strong></div>
+          <div><span>Credited points after contribution</span><strong id="decision-preview-final">${preview.finalScore == null ? "—" : FL.esc(String(preview.finalScore))}</strong></div>`
+      : `<div><span>Credited points (if approved)</span><strong id="decision-preview-final">${preview.finalScore == null ? "—" : FL.esc(String(preview.finalScore))}</strong></div>`;
+    return `
+        <div class="score-preview">
+          <div><span>Official maximum</span><strong>${FL.esc(String(officialMax))}</strong></div>
+          ${contributionBlock}
+        </div>`;
+  },
+
+  metadataCorrectionBlocked: function (doc) {
+    if (doc.canCorrectMetadata === false) {
+      return doc.metadataCorrectionBlockedReason || "Metadata correction is not available for this document.";
+    }
+    if (doc.status === "approved" || doc.status === "system-approved" || doc.status === "rejected") {
+      if (doc.status === "rejected") {
+        return "Rejected documents cannot be corrected here. Use the review workflow if the decision should change.";
+      }
+      return "This document is already approved. Reopen it through the authorized review workflow before correcting extracted information.";
+    }
+    if (doc.decidedAt) {
+      return "This document already has a reviewer decision. Reopen it before correcting extracted information.";
+    }
+    return "";
+  },
+
+  extractionCorrectionHtml: function (doc, canDecide) {
+    if (!canDecide) return "";
+    const blocked = FL.documents.metadataCorrectionBlocked(doc);
+    if (blocked) {
+      return `
+      <h3 class="block-label">Correct extracted information</h3>
+      <div class="alert alert-warning">${FL.esc(blocked)}</div>`;
+    }
+    const info = doc.extractedInfo || {};
+    const fields = FL.validation.fields(doc);
+    const found = doc.indicatorId ? FL.rules.findIndicator(doc.indicatorId) : null;
+    const isRating = found && found.indicator.formula && found.indicator.formula.type === "rating";
+    const multiEvidence = found && found.indicator.evidence && found.indicator.evidence.length > 1;
+    const log = info["Reviewer correction log"];
+    return `
+      <h3 class="block-label">Correct extracted information</h3>
+      <p class="note">Use this when OCR missed values that are visible in the original document. Original OCR values are kept for audit. This does not change the uploaded file.</p>
+      <div class="correction-grid">
+        <label class="field"><span>Faculty / identity name</span>
+          <input id="corr-faculty" type="text" value="${FL.esc(fields.authorValue)}" placeholder="As shown on the document"></label>
+        <label class="field"><span>Document title</span>
+          <input id="corr-title" type="text" value="${FL.esc(fields.titleValue)}" placeholder="Title on the document"></label>
+        <label class="field"><span>Academic year / date</span>
+          <input id="corr-date" type="text" value="${FL.esc(fields.dateValue)}" placeholder="e.g. AY 2023-2024"></label>
+        <label class="field"><span>Academic term</span>
+          <input id="corr-term" type="text" value="${FL.esc(FL.validation.infoValue(doc, "Academic term"))}" placeholder="Semester"></label>
+        ${isRating ? `<label class="field"><span>Evaluation rating</span>
+          <input id="corr-rating" type="text" inputmode="decimal" value="${FL.esc(fields.ratingValue)}" placeholder="e.g. 95"></label>` : ""}
+        <label class="field field-span"><span>Reason for correction</span>
+          <textarea id="corr-reason" rows="3" placeholder="Explain what you verified in the original document"></textarea></label>
+        ${multiEvidence ? `<label class="field field-span"><span><input id="corr-evidence" type="checkbox"> Supporting documents verified</span>
+          <span class="note">Required for indicators that list more than one Annex A evidence item. Check only if the original submission includes them.</span></label>` : ""}
+      </div>
+      <p class="field-error" id="corr-error"></p>
+      <button class="btn btn-primary" type="button" id="save-extraction">Correct extracted information</button>
+      ${log ? `<p class="note">Prior reviewer corrections are recorded in the audit log for this document.</p>` : ""}`;
+  },
+
+  bindExtractionCorrection: function (session, doc, canDecide) {
+    if (!canDecide) return;
+    const button = document.getElementById("save-extraction");
+    if (!button) return;
+    const error = document.getElementById("corr-error");
+    const user = FL.store.userById(session.userId);
+    const fields = FL.validation.fields(doc);
+    const baseline = {
+      facultyName: (fields.authorValue || "").trim(),
+      extractedTitle: (fields.titleValue || "").trim(),
+      academicYear: (fields.dateValue || "").trim(),
+      academicTerm: (FL.validation.infoValue(doc, "Academic term") || "").trim()
+    };
+    const ratingInput = document.getElementById("corr-rating");
+    if (ratingInput) baseline.evaluationRating = (ratingInput.defaultValue || ratingInput.value || "").trim();
+    button.addEventListener("click", function () {
+      error.textContent = "";
+      const reason = (document.getElementById("corr-reason").value || "").trim();
+      if (reason.length < 8) {
+        error.textContent = "Enter a brief reason for the correction (at least 8 characters).";
+        return;
+      }
+      const payload = { reason: reason };
+      const faculty = (document.getElementById("corr-faculty").value || "").trim();
+      const title = (document.getElementById("corr-title").value || "").trim();
+      const year = (document.getElementById("corr-date").value || "").trim();
+      const term = (document.getElementById("corr-term").value || "").trim();
+      if (faculty && faculty !== baseline.facultyName) payload.facultyName = faculty;
+      if (title && title !== baseline.extractedTitle) payload.extractedTitle = title;
+      if (year && year !== baseline.academicYear) payload.academicYear = year;
+      if (term && term !== baseline.academicTerm) payload.academicTerm = term;
+      const ratingEl = document.getElementById("corr-rating");
+      if (ratingEl) {
+        const rating = (ratingEl.value || "").trim();
+        if (rating && rating !== baseline.evaluationRating) payload.evaluationRating = rating;
+      }
+      const evidence = document.getElementById("corr-evidence");
+      if (evidence && evidence.checked) payload.attestSupportingEvidence = true;
+      if (!payload.attestSupportingEvidence && Object.keys(payload).length === 1) {
+        error.textContent = "Change at least one extracted field or attest supporting evidence before saving.";
+        return;
+      }
+      button.disabled = true;
+      FL.store.correctDocumentMetadata(doc.id, payload).then(function (saved) {
+        if (saved && typeof saved === "object") {
+          Object.keys(saved).forEach(function (key) { doc[key] = saved[key]; });
+        }
+        return FL.audit.record(user, "Corrected extracted information", doc.id, payload.reason);
+      }).then(function () {
+        FL.ui.toast("Extracted information updated. Validation and provisional score were recalculated.", "ok");
+        FL.documents.paintReview(session, doc, canDecide);
+      }).catch(function (err) {
+        error.textContent = err.message || "The correction was not saved.";
+      }).finally(function () {
+        button.disabled = false;
+      });
+    });
+  },
+
+  validationHtml: function (doc, validation, canDecide) {
     if (doc.ocr && (doc.ocr.status === "processing" || doc.ocr.status === "pending")) {
       return `<div class="card-head"><h2>Document validation</h2></div>${FL.ui.loading("Validation-result loading", "Validation starts after OCR extraction.")}`;
     }
-    const field = function (ok, label) {
-      return `<li>${FL.ui.statusBadge(ok ? "valid" : "invalid")} ${FL.esc(label)}</li>`;
+    const field = function (ok, label, detail) {
+      return `<li>${FL.ui.statusBadge(ok ? "valid" : "invalid")} ${FL.esc(label)}${detail ? " — " + FL.esc(detail) : ""}</li>`;
+    };
+    const reqItem = function (item) {
+      const tone = item.kind === "invalid" ? "invalid" : item.kind === "missing_evidence" ? "pending" : "pending";
+      return `<li>${FL.ui.statusBadge(tone)} ${FL.esc(item.label)} — ${FL.esc(item.message)}</li>`;
     };
     const klass = validation.classification;
+    const f = validation.fields;
     return `
       <div class="card-head"><h2>Document validation</h2>${FL.ui.statusBadge(validation.overall === "valid" ? "valid" : validation.overall === "invalid" ? "invalid" : "reviewer-required")}</div>
       ${validation.reasons.length ? `<div class="alert ${validation.overall === "invalid" ? "alert-danger" : "alert-warning"}">${validation.reasons.map(FL.esc).join(" ")}</div>` : ""}
-      <h3 class="block-label">Required fields</h3>
+      <h3 class="block-label">Required fields (extracted)</h3>
       <ul class="check-list">
-        ${field(validation.fields.title, "Title")}
-        ${field(validation.fields.author, "Author")}
-        ${field(validation.fields.date, "Date")}
+        ${field(f.title, "Title", f.titleValue || "missing from OCR")}
+        ${field(f.author, "Identity / author", f.authorValue || "missing from OCR")}
+        ${field(f.date, "Date / academic period", f.dateValue || "missing from OCR")}
+        ${f.ratingValue ? field(!!f.ratingValue, "Evaluation rating", f.ratingValue) : ""}
       </ul>
+      ${validation.requirements && validation.requirements.length ? `<h3 class="block-label">Indicator and evidence checks</h3><ul class="check-list">${validation.requirements.map(reqItem).join("")}</ul>` : ""}
       <h3 class="block-label">KRA classification</h3>
       <dl class="facts compact">
         <div><dt>KRA</dt><dd>${(doc.extractedInfo && doc.extractedInfo["Detected KRA"]) ? FL.esc(String(doc.extractedInfo["Detected KRA"])) : (klass.detected ? FL.esc(klass.detected.label) : "—")}</dd></div>
@@ -477,12 +772,30 @@ FL.documents = {
         <div><dt>Indicator</dt><dd>${(doc.extractedInfo && doc.extractedInfo["Automatically identified indicator"]) ? FL.esc(doc.extractedInfo["Automatically identified indicator"]) : (doc.indicatorId && FL.rules.findIndicator(doc.indicatorId) ? FL.esc(FL.rules.findIndicator(doc.indicatorId).indicator.name) : "—")}</dd></div>
         <div><dt>Classification result</dt><dd>${(doc.extractedInfo && doc.extractedInfo["Classification confidence"] !== undefined && doc.extractedInfo["Classification confidence"] !== "") ? FL.esc("Stored confidence " + doc.extractedInfo["Classification confidence"]) : FL.ui.statusBadge(klass.status === "pending" ? "pending" : klass.status)}</dd></div>
       </dl>
+      <h3 class="block-label">Evidence package</h3>
+      <dl class="facts compact">
+        <div><dt>Package ID</dt><dd>${doc.packageId ? FL.esc(doc.packageId) : "—"}</dd></div>
+        <div><dt>Requirement slot</dt><dd>${doc.requirementIndex != null && doc.requirementIndex !== "" ? FL.esc(String(doc.requirementIndex)) : "—"}</dd></div>
+        <div><dt>Package completeness</dt><dd>${doc.extractedInfo && doc.extractedInfo["Package completeness"] ? FL.esc(doc.extractedInfo["Package completeness"]) : "—"}</dd></div>
+      </dl>
+      ${function () {
+        const raw = doc.extractedInfo && doc.extractedInfo["Evidence checklist"];
+        if (!raw) return "";
+        let items = [];
+        try { items = JSON.parse(raw); } catch (e) { return ""; }
+        if (!Array.isArray(items) || !items.length) return "";
+        return `<h3 class="block-label">Per-item evidence checklist</h3><ul class="check-list">${items.map(function (item) {
+          const tone = item.state === "system_verified" || item.state === "reviewer_verified" ? "valid" : item.state === "missing" ? "invalid" : "pending";
+          return `<li>${FL.ui.statusBadge(tone)} ${FL.esc(item.label || "")} <span class="muted">(${FL.esc(item.state || "")})</span></li>`;
+        }).join("")}</ul>`;
+      }()}
       <h3 class="block-label">Documentary evidence</h3>
-      <p>${FL.ui.statusBadge(validation.evidenceStatus)} ${validation.evidenceMissing.length ? FL.esc(validation.evidenceMissing[0]) : "The required evidence for the matched indicator is attached."}</p>
+      <p>${FL.ui.statusBadge(validation.evidenceStatus)} ${validation.evidenceMissing.length ? FL.esc(validation.evidenceMissing[0]) : (doc.extractedInfo && doc.extractedInfo["Missing evidence items"] ? FL.esc(doc.extractedInfo["Missing evidence items"]) : "The required evidence for the matched indicator is attached.")}</p>
       <h3 class="block-label">Duplicate check</h3>
       <p>${FL.ui.statusBadge(validation.duplicateStatus)} File hash ${FL.esc(doc.hash || "—")}${validation.duplicateOf ? ". Matches " + FL.esc(validation.duplicateOf) + "." : ""}</p>
       <h3 class="block-label">Overall validation</h3>
-      <p>${validation.overall === "valid" ? FL.ui.badge("valid", "Valid") : validation.overall === "invalid" ? FL.ui.badge("invalid", "Invalid") : FL.ui.badge("pending", "Reviewer validation required")}</p>`;
+      <p>${validation.overall === "valid" ? FL.ui.badge("valid", "Valid") : validation.overall === "invalid" ? FL.ui.badge("invalid", "Invalid") : FL.ui.badge("pending", "Reviewer validation required")}</p>
+      ${FL.documents.extractionCorrectionHtml(doc, canDecide)}`;
   },
 
   accumulated: function (doc) {
@@ -503,6 +816,38 @@ FL.documents = {
     if (!found) return { error: "Match an Annex I indicator before assigning a score." };
     const indicator = found.indicator;
     const max = indicator.maxPoints;
+    if (FL.documents.isSetSefSemesterDocument(doc)) {
+      if (!Number.isFinite(assigned) || assigned < 0) {
+        return { error: "Use 0 for semester confirmation. SET/SEF indicator points come from the evaluation-period average, not each PDF." };
+      }
+      if (assigned > 0) {
+        return {
+          error: "This upload is one semester of SET/SEF. Enter 0 to confirm the semester record. "
+            + "Aggregated SET (max 36) and SEF (max 24) are computed from all eligible semesters — do not enter the full period score here."
+        };
+      }
+      const period = FL.documents.periodSimulationDisplay(doc);
+      return {
+        found: found,
+        percent: 100,
+        finalScore: 0,
+        duplicateIndicator: false,
+        setSefSemesterConfirmation: true,
+        review: {
+          indicatorId: indicator.id,
+          kraId: found.kra.id,
+          criterionId: found.criterion.id,
+          officialPoints: typeof indicator.points === "number" ? indicator.points : (indicator.formula ? indicator.formula.multiplier : null),
+          officialLabel: indicator.pointsLabel || "",
+          officialMax: max,
+          contributionPercent: 100,
+          assignedScore: 0,
+          finalScore: 0,
+          periodAggregationScore: period && period.score != null ? period.score : null,
+          periodCoverage: period ? period.filled : ""
+        }
+      };
+    }
     if (!Number.isFinite(assigned) || assigned < 0 || assigned > max) {
       return { error: "Enter a score from 0 through the official maximum of " + max + "." };
     }
@@ -574,45 +919,52 @@ FL.documents = {
     }
     const totals = FL.documents.accumulated(doc);
     const officialMax = scored.historical ? scored.officialMax : scored.indicator.maxPoints;
-    const officialPoints = scored.historical && scored.officialLabel ? scored.officialLabel : (scored.indicator.pointsLabel || (scored.indicator.points == null ? "—" : String(scored.indicator.points)));
-    const assigned = scored.historical ? scored.basePoints : (doc.review && typeof doc.review.assignedScore === "number" ? doc.review.assignedScore : "");
-    const preview = FL.documents.scorePreview(doc, assigned === "" ? NaN : Number(assigned));
-    const editable = canDecide && doc.status !== "approved";
-    const sameIndicator = editable && FL.store.documents.some(function (other) {
+    const provisional = FL.documents.provisionalScore(doc);
+    const effective = FL.documents.effectiveSimulationScore(doc);
+    const period = FL.documents.periodSimulationDisplay(doc);
+    const scoreSource = FL.documents.simulationScoreSource(doc);
+    const oversight = FL.documents.oversightStatusLabel(doc);
+    const credited = FL.documents.creditedPoints(doc);
+    const reviewerAssigned = doc.review && typeof doc.review.assignedScore === "number" ? doc.review.assignedScore : null;
+    const showContributor = FL.documents.usesContributorPercent(scored.indicator);
+    const duplicateNote = canDecide && doc.status !== "approved" && FL.store.documents.some(function (other) {
       if (other.id === doc.id || other.facultyId !== doc.facultyId || other.status !== "approved") return false;
       const otherId = (other.review && other.review.indicatorId) || other.indicatorId;
       return otherId === scored.indicator.id;
     });
-    const scoreField = editable ? `
-      <div class="score-panel">
-        <label class="field" for="assigned-score"><span>Assigned score</span>
-          <input id="assigned-score" class="score-input score-input-lg" type="number" min="0" max="${FL.esc(String(officialMax))}" step="0.01" inputmode="decimal" value="${assigned === "" ? "" : FL.esc(String(assigned))}" placeholder="0">
-        </label>
-        <p class="note">Enter the score for this evidence. It cannot exceed the official maximum of ${FL.esc(String(officialMax))}.</p>
-        ${sameIndicator ? `<div class="alert alert-warning">Another approved document already uses this indicator. You can still approve this document. Only the highest score for this indicator counts in the faculty total.</div>` : ""}
-        <div class="score-preview">
-          <div><span>Official maximum</span><strong id="score-preview-max">${FL.esc(String(officialMax))}</strong></div>
-          <div><span>Contribution</span><strong id="score-preview-percent">${preview.percent == null ? "—" : FL.esc(String(preview.percent)) + "%"}</strong></div>
-          <div><span>Score after contribution</span><strong id="score-preview-final">${preview.finalScore == null ? "—" : FL.esc(String(preview.finalScore))}</strong></div>
-        </div>
-      </div>` : "";
     return `
       <div class="card-head"><h2>KRA scoring</h2>${FL.ui.statusBadge(doc.status)}</div>
-      <p class="formula">${FL.esc(FL.scoring.formula)}</p>
+      <p class="note">Read-only summary. Enter the reviewer-assigned score in the Decision section below.</p>
+      <div class="score-summary-strip">
+        <div class="score-mini">
+          <div class="score-mini-label">Simulation score</div>
+          <div class="score-mini-value is-credited">${period && period.score != null ? "SET period " + FL.esc(String(period.score)) : effective == null ? "Score unavailable" : FL.esc(String(effective))}</div>
+        </div>
+        <div class="score-mini">
+          <div class="score-mini-label">Score source</div>
+          <div class="score-mini-value">${FL.esc(scoreSource)}</div>
+        </div>
+        <div class="score-mini">
+          <div class="score-mini-label">Official max</div>
+          <div class="score-mini-value">${FL.esc(String(officialMax))}</div>
+        </div>
+      </div>
+      ${oversight ? `<p class="note">${FL.esc(oversight)} · Rank simulation uses the effective score above; this is not final DBM–CHED approval.</p>` : ""}
+      <p class="formula">${FL.esc(FL.documents.indicatorFormulaText(scored.indicator))}</p>
       <dl class="facts">
-        <div><dt>KRA</dt><dd>${FL.esc(scored.kra.code + " — " + scored.kra.name)}</dd></div>
+        <div><dt>Assigned KRA</dt><dd>${FL.esc(scored.kra.code + " — " + scored.kra.name)}</dd></div>
         <div><dt>Criterion</dt><dd>${FL.esc(scored.criterion.name)}</dd></div>
-        <div><dt>Indicator</dt><dd>${FL.esc(scored.indicator.name)}</dd></div>
-        <div><dt>Provisional Score</dt><dd>${FL.documents.provisionalScore(doc) == null ? "—" : FL.esc(String(FL.documents.provisionalScore(doc)))}</dd></div>
-        <div><dt>Credited Points</dt><dd><strong>${FL.esc(String(FL.documents.creditedPoints(doc)))}</strong></dd></div>
-        <div><dt>Official point value</dt><dd>${FL.esc(String(officialPoints))}</dd></div>
-        <div><dt>Official maximum</dt><dd><strong>${FL.esc(String(officialMax))}</strong></dd></div>
-        ${editable ? "" : `<div><dt>Assigned score</dt><dd>${assigned === "" ? "—" : FL.esc(String(assigned))}</dd></div>
-        <div><dt>Score after contribution</dt><dd><strong>${scored.finalScore === null || scored.finalScore === undefined ? "—" : FL.esc(String(scored.finalScore))}</strong></dd></div>`}
+        <div><dt>Identified indicator</dt><dd>${FL.esc(scored.indicator.name)}</dd></div>
+        <div><dt>System-calculated score</dt><dd>${provisional == null ? "—" : FL.esc(String(provisional))}</dd></div>
+        <div><dt>Effective simulation score</dt><dd><strong>${effective == null ? "Score unavailable" : FL.esc(String(effective))}</strong> (${FL.esc(scoreSource)})</dd></div>
+        <div><dt>Official indicator maximum</dt><dd><strong>${FL.esc(String(officialMax))}</strong></dd></div>
+        <div><dt>Official credited points</dt><dd><strong>${FL.esc(String(credited))}</strong>${doc.status === "approved" || doc.status === "system-approved" ? "" : " <span class=\"note\">Separate from simulation until reviewer validates.</span>"}</dd></div>
+        ${reviewerAssigned != null ? `<div><dt>Reviewer-assigned score</dt><dd>${FL.esc(String(reviewerAssigned))}</dd></div>` : ""}
+        ${doc.status === "approved" && showContributor ? `<div><dt>Credited after contribution</dt><dd><strong>${scored.finalScore === null || scored.finalScore === undefined ? "—" : FL.esc(String(scored.finalScore))}</strong></dd></div>` : ""}
         <div><dt>Faculty accumulated score</dt><dd>${FL.esc(String(totals.criterion))} in this criterion · ${FL.esc(String(totals.kra))} in this KRA</dd></div>
       </dl>
-      ${scoreField}
-      <p class="note">${scored.historical ? "This approved score is kept as it was recorded. A later change to the official KRA configuration does not change it." : "The assigned score is included in the faculty total only after you approve the document below."}</p>`;
+      ${duplicateNote ? `<div class="alert alert-warning">Another approved document already uses this indicator. You can still approve this document. Only the highest score for this indicator counts in the faculty total.</div>` : ""}
+      <p class="note">${scored.historical ? "This approved score is kept as it was recorded. A later change to the official KRA configuration does not change it." : "Confirm or adjust the reviewer-assigned score in the Reviewer decision section. Credited points update only after approval."}</p>`;
   },
 
   contributionHtml: function (scored, doc) {
@@ -638,16 +990,17 @@ FL.documents = {
   },
 
   workflowHtml: function (doc, scored) {
-    const validation = scored.validation;
+    const info = doc.extractedInfo || {};
+    const branch = info["Processing branch"] || "";
     let current = 8;
     if (!doc.ocr || doc.ocr.status !== "completed") current = 1;
-    else if (!validation.fields.title || !validation.fields.author || !validation.fields.date || validation.duplicateStatus === "duplicate") current = 2;
-    else if (!scored.indicator || scored.finalScore === null) current = 3;
-    else if (doc.status === "pending-review" || doc.status === "pendingReview") current = 4;
-    else if (doc.status === "approved" || doc.status === "validated") current = 8;
-    else current = 6;
+    else if (branch === "Incomplete" || scored.validation.overall === "invalid") current = 3;
+    else if (branch === "Needs verification" || branch === "Requires review") current = 6;
+    else if (branch === "Complete and valid" || info["Simulation eligible"] === "yes") current = 5;
+    else if (doc.status === "approved" || doc.status === "validated" || doc.status === "system-approved") current = 8;
+    else current = 4;
     return `
-      <section class="card" id="workflow">
+      <section class="card review-section" id="workflow">
         <div class="card-head"><h2>Document processing workflow</h2></div>
         <ol class="workflow">
           ${FL.rules.workflow.map(function (step, index) {
@@ -667,20 +1020,35 @@ FL.documents = {
     }
     const scored = FL.scoring.scoreDocument(doc);
     const officialMax = scored.historical ? scored.officialMax : (scored.indicator ? scored.indicator.maxPoints : null);
-    const assigned = scored.historical ? scored.basePoints : (doc.review && typeof doc.review.assignedScore === "number" ? doc.review.assignedScore : "");
+    const assignedRaw = scored.historical ? scored.basePoints : FL.documents.defaultAssignedScore(doc);
+    const assigned = assignedRaw === "" ? "" : assignedRaw;
     const preview = FL.documents.scorePreview(doc, assigned === "" ? NaN : Number(assigned));
+    const isSetSef = FL.documents.isSetSefSemesterDocument(doc);
+    const period = FL.documents.periodSimulationDisplay(doc);
+    const scoreLabel = isSetSef
+      ? "Document credited points (use 0 for SET/SEF semester confirmation)"
+      : (scored.indicator && scored.indicator.formula && scored.indicator.formula.type === "rating"
+        ? "Reviewer-assigned score (verified points)"
+        : "Reviewer-assigned score");
+    const scoreHint = isSetSef
+      ? "Confirm this semester record with 0 document points. "
+        + (period && period.score != null
+          ? "Current period aggregation: " + period.score + " pts (" + (period.filled || "coverage") + "). "
+          : (period && period.filled ? "Coverage " + period.filled + ". " : ""))
+        + "Full SET/SEF scores apply once per evaluation period (max 36 / 24), not per PDF."
+      : (scored.indicator && FL.documents.usesContributorPercent(scored.indicator)
+        ? "Base points before the declared contribution percentage. Credited points appear in the preview below."
+        : (scored.indicator && scored.indicator.formula && scored.indicator.formula.type === "rating"
+          ? "Enter verified points from the evaluation rating and applicable formula. Provisional score is a starting suggestion."
+          : "Enter verified points for this evidence. They cannot exceed the official maximum."));
     const scoreField = officialMax == null ? `
       <p class="note">Match an indicator before assigning a score.</p>` : `
       <div class="score-panel">
-        <label class="field" for="decision-score"><span>Assigned score</span>
+        <label class="field" for="decision-score"><span>${FL.esc(scoreLabel)}</span>
           <input id="decision-score" class="score-input score-input-lg" type="number" min="0" max="${FL.esc(String(officialMax))}" step="0.01" inputmode="decimal" value="${assigned === "" ? "" : FL.esc(String(assigned))}" placeholder="0">
         </label>
-        <p class="note">Official maximum ${FL.esc(String(officialMax))}. The assigned score cannot exceed that maximum.</p>
-        <div class="score-preview">
-          <div><span>Official maximum</span><strong>${FL.esc(String(officialMax))}</strong></div>
-          <div><span>Contribution</span><strong id="decision-preview-percent">${preview.percent == null ? "—" : FL.esc(String(preview.percent)) + "%"}</strong></div>
-          <div><span>Score after contribution</span><strong id="decision-preview-final">${preview.finalScore == null ? "—" : FL.esc(String(preview.finalScore))}</strong></div>
-        </div>
+        <p class="note">Official maximum ${FL.esc(String(officialMax))}. ${FL.esc(scoreHint)}</p>
+        ${FL.documents.decisionScorePreviewHtml(doc, preview, officialMax)}
       </div>`;
     return `
       <div class="card-head"><h2>Reviewer decision</h2></div>
@@ -691,7 +1059,7 @@ FL.documents = {
       <p class="field-error" id="feedback-error"></p>
       <div class="decision-row">
         <button class="btn btn-primary" type="button" id="approve">Accept</button>
-        <button class="btn btn-primary" type="button" id="correct">Correct</button>
+        <button class="btn btn-primary${doc.status === "approved" ? "" : " is-hidden"}" type="button" id="correct-score">Correct score</button>
         <button class="btn btn-danger" type="button" id="reject">Reject</button>
         <button class="btn btn-warning" type="button" id="revise">Request revision</button>
         <button class="btn" type="button" id="reopen">Reopen</button>
@@ -715,10 +1083,10 @@ FL.documents = {
         error.textContent = "Match an Annex I indicator before approval.";
         return;
       }
-      const assignedInput = document.getElementById("decision-score") || document.getElementById("assigned-score");
+      const assignedInput = document.getElementById("decision-score");
       const assigned = assignedInput ? Number(assignedInput.value) : NaN;
       if (!assignedInput) {
-        error.textContent = "Match an Annex I indicator and enter an assigned score before approval.";
+        error.textContent = "Match an Annex I indicator and enter a reviewer-assigned score before approval.";
         return;
       }
       const award = FL.documents.award(doc, assigned);
@@ -727,18 +1095,16 @@ FL.documents = {
         if (assignedInput) assignedInput.focus();
         return;
       }
-      const result = FL.validation.evaluate(doc);
-      if (result.overall === "invalid" && result.duplicateStatus === "duplicate") {
-        error.textContent = "A duplicate document is ignored and is not approved.";
+      const gate = FL.validation.approvalGate(doc);
+      if (!gate.ok) {
+        error.textContent = FL.validation.formatBlockers(gate.blockers);
         return;
       }
-      if (!result.fields.title || !result.fields.author || !result.fields.date) {
-        error.textContent = "A document with missing required fields is invalid and cannot be approved.";
-        return;
-      }
-      const body = award.duplicateIndicator
-        ? "<p>Approve this document and record its score? Another approved document already uses this indicator for this faculty member. The document can still be approved. Only the highest score for that indicator is counted in the faculty KRA total, so points are not double-credited.</p>"
-        : "<p>Approve this document and include its final score in the faculty KRA estimate? This remains an evaluation-support record.</p>";
+      const body = award.setSefSemesterConfirmation
+        ? "<p>Confirm this SET/SEF semester record? The document is credited with 0 points; the evaluation-period average controls the official SET/SEF indicator score (max 36 / 24).</p>"
+        : (award.duplicateIndicator
+          ? "<p>Approve this document and record its score? Another approved document already uses this indicator for this faculty member. The document can still be approved. Only the highest score for that indicator is counted in the faculty KRA total, so points are not double-credited.</p>"
+          : "<p>Approve this document and include its final score in the faculty KRA estimate? This remains an evaluation-support record.</p>");
       FL.ui.modal({
         title: "Approve document",
         body: body,
@@ -838,7 +1204,8 @@ FL.documents = {
         }
       });
     });
-    document.getElementById("correct").addEventListener("click", function () {
+    const correctScore = document.getElementById("correct-score");
+    if (correctScore) correctScore.addEventListener("click", function () {
       error.textContent = "";
       const assignedInput = document.getElementById("decision-score");
       const assigned = assignedInput ? Number(assignedInput.value) : NaN;

@@ -221,6 +221,7 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
     });
 
     try {
+      String? evidencePackageId;
       for (var i = 0; i < total; i++) {
         final file = _files[i];
         if (!mounted) return;
@@ -228,12 +229,14 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
           _progress = (i / total).clamp(0.05, 0.95);
           _progressLabel = 'Uploading ${i + 1} of $total…';
         });
-        await AppState.instance.uploadDocument(
+        evidencePackageId = await AppState.instance.uploadDocument(
           title: file.title,
           category: DocumentCategory.supportingEvidence,
           kra: _mobileKra,
           fileName: file.fileName,
           criterionId: _criterionId,
+          packageId: evidencePackageId,
+          requirementIndex: total > 1 ? i : null,
           fileBytes: file.bytes,
         );
         _uploadedCount = i + 1;

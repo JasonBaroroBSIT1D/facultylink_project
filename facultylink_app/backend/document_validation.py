@@ -9,6 +9,9 @@ from indicator_identity import resolve_identity_profile
 from indicator_rules import rule_for
 from kra_catalog import MOBILE_TO_WEB, find_criterion, load_catalog
 
+# Keep in sync with kra1a_evaluation.RATING_AGGREGATION_INDICATORS (avoid import cycle with web reviewer API).
+_RATING_AGGREGATION_INDICATORS = frozenset({"kra1-a-student", "kra1-a-supervisor"})
+
 COUNTABLE_ACCOMPLISHMENT_STATUSES = {"validated", "approved", "system_approved"}
 
 DATE_PATTERN = re.compile(
@@ -30,8 +33,9 @@ DATE_PATTERN = re.compile(
 # a page number, or the word "score" on its own is not a rating.
 RATING_PATTERNS = [
     re.compile(
-        r"(?:osetr|osefr|overall(?:\s+(?:set|sef))?\s+rating|set rating|sef rating|"
-        r"rating summary|client satisfaction(?:\s+rating)?)\s*[:\-]?\s*(\d+(?:\.\d+)?)",
+        r"(?:osetr|osefr|overall(?:\s+(?:set|sef))?\s+rating|overall rating|set rating|sef rating|"
+        r"rating summary|client satisfaction(?:\s+rating)?)\s*[:\-]?\s*(\d+(?:\.\d+)?)"
+        r"(?:\s*(?:%|percent))?(?:\s*/\s*100)?",
         re.I,
     ),
 ]
@@ -44,7 +48,10 @@ RATING_VALUE = re.compile(r"^(\d{1,3}(?:\.\d+)?)(?:\s*(?:%|percent))?(?:\s*/\s*1
 ISSN_PATTERN = re.compile(r"\b\d{4}[- ]?\d{3}[\dxX]\b|\bissn\b", re.I)
 ISBN_PATTERN = re.compile(r"\b(?:ISBN(?:-1[03])?:?\s*)?(?:97[89][- ]?)?\d{1,5}[- ]?\d{1,7}[- ]?\d{1,7}[- ]?\d[\dXx]\b")
 
+_FACULTY_LABEL = r"faculty(?!\s+(?:subject|subjects|id|no|number))"
+
 NAME_LINE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(rf"(?im)^{_FACULTY_LABEL}\s*[:\-]\s*(.+)$"), "Faculty Name"),
     (re.compile(r"(?im)^(?:faculty name|evaluated faculty|name of faculty)\s*[:\-]\s*(.+)$"), "Faculty Name"),
     (re.compile(r"(?im)^(?:employee name|name of employee)\s*[:\-]\s*(.+)$"), "Employee Name"),
     (re.compile(r"(?im)^(?:participant name|name of participant)\s*[:\-]\s*(.+)$"), "Participant Name"),
@@ -123,6 +130,13 @@ def _capitalized_name(value: str) -> bool:
 
 
 LOOSE_NAME_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (
+        re.compile(
+            rf"\b{_FACULTY_LABEL}[ \t]*[:\-][ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){{0,3}})",
+            re.I,
+        ),
+        "Faculty Name",
+    ),
     (re.compile(r"\b(?:faculty name|evaluated faculty)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Faculty Name"),
     (re.compile(r"\b(?:employee name)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Employee Name"),
     (re.compile(r"\b(?:participant name|participant)[ \t]*[:\-]?[ \t]+([A-Za-z][A-Za-z.'-]+(?:[ \t]+[A-Za-z][A-Za-z.'-]+){0,3})", re.I), "Participant Name"),
@@ -136,6 +150,7 @@ LOOSE_NAME_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 INLINE_NAME_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(rf"(?i){_FACULTY_LABEL}\s*[:\-]\s*([^\n\r;]+)"), "Faculty Name"),
     (re.compile(r"(?i)(?:faculty name|evaluated faculty)\s*[:\-]\s*([^\n\r;]+)"), "Faculty Name"),
     (re.compile(r"(?i)(?:employee name)\s*[:\-]\s*([^\n\r;]+)"), "Employee Name"),
     (re.compile(r"(?i)(?:participant name)\s*[:\-]\s*([^\n\r;]+)"), "Participant Name"),
@@ -325,6 +340,45 @@ def extract_named_parties(
     return shown, names, from_document
 
 
+ACADEMIC_YEAR_PATTERN = re.compile(
+    r"(?i)(?:academic year|school year|sy|ay)\s*[:\-]?\s*(\d{4}\s*[-–/]\s*\d{4})"
+)
+ACADEMIC_TERM_PATTERN = re.compile(
+    r"(?i)(?:academic term|semester|term)\s*[:\-]?\s*([^\n\r;]+)"
+)
+EVALUATION_TYPE_PATTERN = re.compile(
+    r"(?i)evaluation type\s*[:\-]?\s*([^\n\r;]+)"
+)
+
+
+def extract_document_period(*, ocr_text: str, title: str = "") -> str | None:
+    """Prefer a full academic year over a lone calendar year."""
+    haystack = "\n".join(part for part in (ocr_text, title) if part)
+    match = ACADEMIC_YEAR_PATTERN.search(haystack)
+    if match:
+        return re.sub(r"\s+", "", match.group(1).replace("/", "-"))
+    range_match = re.search(r"\b(\d{4}\s*[-–/]\s*\d{4})\b", haystack)
+    if range_match:
+        return re.sub(r"\s+", "", range_match.group(1).replace("/", "-"))
+    for source in (ocr_text, title):
+        match = DATE_PATTERN.search(source or "")
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def extract_evaluation_metadata(ocr_text: str) -> dict[str, str]:
+    text = ocr_text or ""
+    metadata: dict[str, str] = {}
+    term = ACADEMIC_TERM_PATTERN.search(text)
+    if term:
+        metadata["academic_term"] = term.group(1).strip()
+    eval_type = EVALUATION_TYPE_PATTERN.search(text)
+    if eval_type:
+        metadata["evaluation_type"] = eval_type.group(1).strip()
+    return metadata
+
+
 def extract_fields(
     *,
     title: str,
@@ -339,12 +393,14 @@ def extract_fields(
         upload_author=author,
         indicator_id=indicator_id,
     )
-    date_value = None
-    for source in (ocr_text, title or ""):
-        match = DATE_PATTERN.search(source or "")
-        if match:
-            date_value = match.group(1).strip()
-            break
+    date_value = extract_document_period(ocr_text=ocr_text, title=cleaned_title)
+    eval_meta = extract_evaluation_metadata(ocr_text)
+    if not eval_meta.get("academic_term") and cleaned_title:
+        lower = cleaned_title.lower()
+        if re.search(r"(?:^|[\s_./-])sem(?:ester)?\s*2\b|2nd\s*sem", lower):
+            eval_meta["academic_term"] = "2nd Semester"
+        elif re.search(r"(?:^|[\s_./-])sem(?:ester)?\s*1\b|1st\s*sem", lower):
+            eval_meta["academic_term"] = "1st Semester"
     haystack = " ".join(part for part in (title, author, ocr_text) if part)
     return {
         "title": cleaned_title,
@@ -354,6 +410,8 @@ def extract_fields(
         "named_parties": named_parties,
         "name_from_document": name_from_document,
         "date": date_value,
+        "academic_term": eval_meta.get("academic_term"),
+        "evaluation_type": eval_meta.get("evaluation_type"),
         "issn": bool(ISSN_PATTERN.search(haystack or "")),
         "isbn": bool(ISBN_PATTERN.search(haystack or "")),
         "rating": extract_rating(haystack),
@@ -427,7 +485,7 @@ def verify_identity(
         if not uploader_name:
             return False, label, "Uploader profile name is unavailable for identity verification."
         if matched:
-            return True, label, f"Extracted {label.lower()} matches the uploading faculty member."
+            return True, label, "Identity matched."
         return (
             False,
             label,
@@ -479,6 +537,9 @@ def find_duplicate_accomplishment(
             continue
         if file_hash and getattr(doc, "file_hash", None) == file_hash:
             return getattr(doc, "public_id", None)
+        if indicator_id in _RATING_AGGREGATION_INDICATORS:
+            # SET/SEF semesters share one indicator; slot duplicates are handled in period aggregation.
+            continue
         if indicator_id and getattr(doc, "indicator_id", None) == indicator_id:
             if _similar_title(getattr(doc, "title", ""), title):
                 return getattr(doc, "public_id", None)

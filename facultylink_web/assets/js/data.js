@@ -31,13 +31,24 @@ FL.api = {
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined
     }).then(function (response) {
-      return response.json().catch(function () { return {}; }).then(function (data) {
+      return response.text().then(function (text) {
+        let data = {};
+        if (text) {
+          try {
+            data = JSON.parse(text);
+          } catch (parseErr) {
+            data = {};
+          }
+        }
         if (!response.ok) {
           const fallback =
             response.status === 405
               ? "The web server needs a restart to load the latest admin save routes."
               : "The server did not save that change.";
-          const error = new Error(data.error || fallback);
+          const serverMessage =
+            (data && (data.error || data.message)) ||
+            (text && text.indexOf("{") !== 0 && text.length < 400 ? text.trim() : "");
+          const error = new Error(serverMessage || fallback);
           error.status = response.status;
           throw error;
         }
@@ -96,6 +107,10 @@ FL.store = {
       }
       return saved;
     });
+  },
+
+  correctDocumentMetadata: function (documentId, payload) {
+    return FL.api.send("POST", "/api/documents/" + encodeURIComponent(documentId) + "/correct-metadata", payload);
   },
 
   assignReviewer: function (facultyId, reviewerId) {

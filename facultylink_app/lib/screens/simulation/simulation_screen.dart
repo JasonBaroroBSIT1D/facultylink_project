@@ -56,6 +56,10 @@ class SimulationScreen extends StatelessWidget {
                 simulation: sim,
                 play: state.mainTabIndex == 2,
               ),
+              if (state.criterionA != null) ...[
+                const SizedBox(height: 18),
+                _CriterionAOverview(data: state.criterionA!),
+              ],
               const SizedBox(height: 18),
               const SectionHeader(title: 'Ranking and possible points'),
           Card(
@@ -267,6 +271,54 @@ class _KraBar extends StatelessWidget {
         const SizedBox(height: 6),
         LinearProgressLabeled(progress: score.progress, color: color),
       ],
+    );
+  }
+}
+
+class _CriterionAOverview extends StatelessWidget {
+  const _CriterionAOverview({required this.data});
+
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final set = data['set'] as Map<String, dynamic>? ?? {};
+    final sef = data['sef'] as Map<String, dynamic>? ?? {};
+    final total = data['criterionPoints'];
+    final max = data['criterionMax'] ?? 60;
+    String block(String title, Map<String, dynamic> block) {
+      final filled = block['filledCount'] ?? 0;
+      final required = block['requiredSemesters'] ?? 6;
+      final avg = block['averageRating'];
+      final pts = block['points'];
+      final maxPts = block['maxPoints'];
+      return '$title · coverage $filled/$required'
+          '${avg != null ? ' · avg $avg' : ''}'
+          '${pts != null && (block['finalized'] == true) ? ' · ${pts.toString()} / $maxPts pts' : ''}';
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'KRA I — Criterion A (Teaching Effectiveness)',
+              style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy),
+            ),
+            const SizedBox(height: 8),
+            Text(block('SET (60%)', set), style: const TextStyle(fontSize: 12)),
+            const SizedBox(height: 4),
+            Text(block('SEF (40%)', sef), style: const TextStyle(fontSize: 12)),
+            const SizedBox(height: 8),
+            Text(
+              'Combined: ${total ?? '—'} / $max (rank simulation; not official approval)',
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

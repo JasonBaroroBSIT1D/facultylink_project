@@ -8,9 +8,14 @@ import '../screens/profile/profile_screen.dart';
 import '../screens/simulation/simulation_screen.dart';
 import '../theme/app_colors.dart';
 
-class MainShell extends StatelessWidget {
+class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
+  @override
+  State<MainShell> createState() => _MainShellState();
+}
+
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   static const _tabs = [
     DashboardScreen(),
     DocumentsScreen(),
@@ -18,6 +23,28 @@ class MainShell extends StatelessWidget {
     NotificationsScreen(),
     ProfileScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      AppState.instance.refreshFromApi(
+        label: 'Refreshing documents...',
+        soft: true,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,9 +55,32 @@ class MainShell extends StatelessWidget {
       builder: (context, _) {
         final unread = state.unreadNotificationCount;
         return Scaffold(
-          body: IndexedStack(
-            index: state.mainTabIndex,
-            children: _tabs,
+          body: Column(
+            children: [
+              if (state.busyMessage != null)
+                LinearProgressIndicator(
+                  minHeight: 3,
+                  backgroundColor: AppColors.divider,
+                  color: AppColors.navy,
+                ),
+              if (state.busyMessage != null)
+                Material(
+                  color: AppColors.navy.withValues(alpha: 0.06),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Text(
+                      state.busyMessage!,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: IndexedStack(
+                  index: state.mainTabIndex,
+                  children: _tabs,
+                ),
+              ),
+            ],
           ),
           bottomNavigationBar: NavigationBar(
             selectedIndex: state.mainTabIndex,

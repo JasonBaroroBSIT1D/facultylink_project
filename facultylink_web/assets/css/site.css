@@ -476,3 +476,16 @@ html:has(.site-body) { scroll-behavior: smooth; scroll-padding-top: calc(var(--f
 @media (max-height: 640px) and (min-width: 561px) {
   .hero { padding-top: calc(var(--fl-nav-h) + 24px); padding-bottom: 40px; }
 }
+
+.is-hidden { display: none !important; }
+
+.correction-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin: 12px 0;
+}
+.correction-grid .field-span { grid-column: 1 / -1; }
+@media (max-width: 720px) {
+  .correction-grid { grid-template-columns: 1fr; }
+}

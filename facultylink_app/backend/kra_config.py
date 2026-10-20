@@ -248,6 +248,36 @@ def config_from_payload(
     }
 
 
+def scoring_config_from_kra_row(kra_row, *, default_formula: str | None = None):
+    """Build scoring config dict from a kra_settings row (web or mobile)."""
+    import json as _json
+
+    formula_default = default_formula or SCORING_FORMULA
+    if not kra_row:
+        return config_from_payload({}, formula=formula_default)
+    raw = kra_row.get("payload") if isinstance(kra_row, dict) else kra_row["payload"]
+    if isinstance(raw, str):
+        try:
+            cfg_payload = _json.loads(raw)
+        except (TypeError, ValueError):
+            cfg_payload = {}
+    elif isinstance(raw, dict):
+        cfg_payload = raw
+    else:
+        cfg_payload = {}
+    version = kra_row.get("version") if isinstance(kra_row, dict) else kra_row["version"]
+    status = kra_row.get("status") if isinstance(kra_row, dict) else kra_row["status"]
+    published_at = kra_row.get("published_at") if isinstance(kra_row, dict) else kra_row["published_at"]
+    formula = kra_row.get("formula") if isinstance(kra_row, dict) else kra_row["formula"]
+    return config_from_payload(
+        cfg_payload,
+        version=int(version or 1),
+        status=status or "published",
+        published_at=published_at or "",
+        formula=formula or formula_default,
+    )
+
+
 def document_earned_points(doc, config: dict | None = None) -> float:
     """Prefer reviewer-awarded score (web formula result); fall back to stored points."""
     from indicator_rules import rule_for
